@@ -19,7 +19,11 @@ let temporalClient: TemporalClient;
 
 async function getTemporalClient(): Promise<TemporalClient> {
   if (!temporalClient) {
-    const connectionOptions: any = {
+    const connectionOptions: {
+      address: string;
+      tls?: object;
+      apiKey?: string;
+    } = {
       address: config.temporal.address,
     };
 
@@ -42,7 +46,7 @@ interface AnalysisStatus {
   step: string;
   progress: number;
   error?: string;
-  result?: any;
+  result?: unknown;
   canceled?: boolean;
 }
 
@@ -78,7 +82,7 @@ export async function GET(
     async start(controller) {
       const encoder = new TextEncoder();
       
-      const sendEvent = (event: string, data: any) => {
+      const sendEvent = (event: string, data: unknown) => {
         const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
         controller.enqueue(encoder.encode(message));
       };
@@ -145,7 +149,7 @@ export async function GET(
                   });
                 }
               }
-            } catch (queryError) {
+            } catch {
               // Query might fail during early workflow stages - that's normal
               if (pollCount % 30 === 0) { // Log only every 30 seconds to avoid spam
                 console.log('Query not yet available for workflow:', workflowId);
@@ -161,7 +165,7 @@ export async function GET(
                   result,
                   timestamp: new Date().toISOString()
                 });
-              } catch (error) {
+              } catch {
                 sendEvent('completed', {
                   workflowId,
                   result: { 

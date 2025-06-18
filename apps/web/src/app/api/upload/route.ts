@@ -68,7 +68,11 @@ async function getTemporalClient(): Promise<TemporalClient> {
   if (!temporalClient) {
     console.log('🔗 Creating Temporal client...');
 
-    const connectionOptions: any = {
+    const connectionOptions: {
+      address: string;
+      tls?: object;
+      apiKey?: string;
+    } = {
       address: config.temporal.address,
     };
 
@@ -117,14 +121,14 @@ interface AnalysisInput {
   };
 }
 
-// Helper functions
-function getContentTypeCategory(contentType: string): 'document' | 'code' | 'data' | 'image' {
-  if (contentType.startsWith('image/')) return 'image';
-  if (contentType.includes('json') || contentType.includes('csv') || contentType.includes('xml')) return 'data';
-  if (contentType.includes('javascript') || contentType.includes('typescript') || 
-      contentType.includes('python') || contentType.includes('code')) return 'code';
-  return 'document';
-}
+// Helper functions (currently unused but kept for future use)
+// function getContentTypeCategory(contentType: string): 'document' | 'code' | 'data' | 'image' {
+//   if (contentType.startsWith('image/')) return 'image';
+//   if (contentType.includes('json') || contentType.includes('csv') || contentType.includes('xml')) return 'data';
+//   if (contentType.includes('javascript') || contentType.includes('typescript') || 
+//       contentType.includes('python') || contentType.includes('code')) return 'code';
+//   return 'document';
+// }
 
 function generateS3Key(userId: string, filename: string): string {
   const fileId = uuidv4();
@@ -178,7 +182,7 @@ async function startAnalysisWorkflow(fileUrl: string, fileName: string, userId: 
   };
 
   try {
-    const handle = await client.workflow.start('analyzeDocumentWorkflow', {
+    await client.workflow.start('analyzeDocumentWorkflow', {
       args: [analysisInput],
       taskQueue: config.temporal.taskQueue,
       workflowId,
@@ -255,7 +259,6 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const userId = formData.get('userId') as string || 'demo-user';
-    const analysisType = formData.get('analysisType') as string || 'construction';
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 export interface StreamEvent {
   type: string;
-  data: any;
+  data: unknown;
   timestamp?: string;
 }
 
@@ -92,7 +92,7 @@ export function useWorkflowStream(
       ];
 
       eventTypes.forEach(eventType => {
-        eventSourceRef.current?.addEventListener(eventType, (event: any) => {
+        eventSourceRef.current?.addEventListener(eventType, (event: MessageEvent) => {
           try {
             const data = JSON.parse(event.data);
             const streamEvent: StreamEvent = {

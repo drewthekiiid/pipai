@@ -13,7 +13,15 @@ interface AnalysisResult {
   summary?: string;
   insights?: string[];
   embeddings?: number[];
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
+  error?: string;
+}
+
+interface WorkflowCompletedData {
+  result: AnalysisResult;
+}
+
+interface WorkflowFailedData {
   error?: string;
 }
 
@@ -108,11 +116,11 @@ export function PipAIUploadApp() {
 
     switch (lastEvent.type) {
       case 'completed':
-        setResult(lastEvent.data.result);
+        setResult((lastEvent.data as WorkflowCompletedData).result);
         setUploadState('completed');
         break;
       case 'failed':
-        setError(lastEvent.data.error || 'Workflow failed');
+        setError((lastEvent.data as WorkflowFailedData).error || 'Workflow failed');
         setUploadState('error');
         break;
     }

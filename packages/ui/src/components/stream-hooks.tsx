@@ -7,15 +7,35 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 
 export interface StreamEvent {
   type: string;
-  data: any;
+  data: unknown;
   timestamp?: string;
+}
+
+interface WorkflowEventData {
+  status?: WorkflowStatus;
+  step?: string;
+  progress?: number;
+  error?: string;
+  workflow_status?: string;
+  canceled?: boolean;
+}
+
+interface ErrorEventData {
+  message: string;
+}
+
+interface AnalysisEventData {
+  step?: string;
+  progress?: number;
+  error?: string;
+  result?: unknown;
 }
 
 export interface WorkflowStatus {
   step: string;
   progress: number;
   error?: string;
-  result?: any;
+  result?: unknown;
   canceled?: boolean;
   workflow_status?: string;
 }
@@ -42,7 +62,7 @@ export function useSSE(
   const [lastEvent, setLastEvent] = useState<StreamEvent | null>(null);
   
   const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   
   const {
@@ -96,7 +116,7 @@ export function useSSE(
       ];
 
       eventTypes.forEach(eventType => {
-        eventSourceRef.current?.addEventListener(eventType, (event: any) => {
+        eventSourceRef.current?.addEventListener(eventType, (event: MessageEvent) => {
           try {
             const data = JSON.parse(event.data);
             const streamEvent: StreamEvent = {
@@ -113,7 +133,7 @@ export function useSSE(
         });
       });
 
-      eventSourceRef.current.onerror = (event) => {
+      eventSourceRef.current.onerror = (_event) => {
         setIsConnected(false);
         const error = new Error('SSE connection error');
         setError(error);
@@ -199,8 +219,9 @@ export function useWorkflowProgress(
     if (lastEvent) {
       switch (lastEvent.type) {
         case 'workflow_progress':
-        case 'temporal_status':
-          const newStatus = lastEvent.data.status || lastEvent.data;
+        case 'temporal_status': {
+          const eventData = lastEvent.data as WorkflowEventData;
+          const newStatus = eventData.status || (eventData as WorkflowStatus);
           setStatus(newStatus);
           setProgress(newStatus.progress || 0);
           setCurrentStep(newStatus.step || '');
@@ -212,9 +233,10 @@ export function useWorkflowProgress(
             newStatus.canceled
           );
           break;
+        }
         case 'error':
           setHasError(true);
-          setStatus(prev => prev ? { ...prev, error: lastEvent.data.message } : null);
+          setStatus(prev => prev ? { ...prev, error: (lastEvent.data as ErrorEventData).message } : null);
           break;
       }
     }
@@ -249,15 +271,15 @@ export function useFileAnalysisProgress(
   
   const [analysisStep, setAnalysisStep] = useState<string>('');
   const [progress, setProgress] = useState(0);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<unknown>(null);
   const [isComplete, setIsComplete] = useState(false);
   const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
     if (lastEvent) {
       switch (lastEvent.type) {
-        case 'analysis_progress':
-          const data = lastEvent.data;
+        case 'analysis_progress': {
+          const data = lastEvent.data as AnalysisEventData;
           setAnalysisStep(data.step || '');
           setProgress(data.progress || 0);
           setHasError(!!data.error);
@@ -266,6 +288,7 @@ export function useFileAnalysisProgress(
             setResult(data.result);
           }
           break;
+        }
         case 'error':
           setHasError(true);
           break;

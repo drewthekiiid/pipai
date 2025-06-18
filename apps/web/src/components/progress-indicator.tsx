@@ -66,10 +66,11 @@ export function ProgressIndicator({
     if (progressEvents.length === 0) return null;
     
     const latest = progressEvents[progressEvents.length - 1];
+    const data = latest.data as { step?: string; progress?: number; agent?: string };
     return {
-      step: latest.data.step || '',
-      progress: latest.data.progress || 0,
-      agent: latest.data.agent || 'System'
+      step: data.step || '',
+      progress: data.progress || 0,
+      agent: data.agent || 'System'
     };
   }, [events]);
 
@@ -79,7 +80,8 @@ export function ProgressIndicator({
     if (statusEvents.length === 0) return null;
     
     const latest = statusEvents[statusEvents.length - 1];
-    return latest.data.status;
+    const data = latest.data as { status?: string };
+    return data.status;
   }, [events]);
 
   // Calculate overall progress
@@ -173,7 +175,7 @@ export function ProgressIndicator({
           
           {/* Agent Status Grid */}
           <div className="space-y-3">
-            {CONSTRUCTION_AGENTS.map((agent, index) => {
+            {CONSTRUCTION_AGENTS.map((agent) => {
               const isActive = activeAgent === agent.key;
               const agentProgress = currentAnalysis?.progress || 0;
               
@@ -259,19 +261,22 @@ export function ProgressIndicator({
             <div className="max-h-32 overflow-y-auto">
               <div className="text-xs text-slate-500 mb-2">Recent Events:</div>
               <div className="space-y-1">
-                {events.slice(-3).map((event, index) => (
-                  <div key={index} className="text-xs bg-slate-50 p-2 rounded border-l-2 border-slate-300">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-slate-700">{event.type}</span>
-                      <span className="text-slate-500">
-                        {new Date(event.timestamp || '').toLocaleTimeString()}
-                      </span>
+                {events.slice(-3).map((event, eventIndex) => {
+                  const data = event.data as { message?: string };
+                  return (
+                    <div key={eventIndex} className="text-xs bg-slate-50 p-2 rounded border-l-2 border-slate-300">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-slate-700">{event.type}</span>
+                        <span className="text-slate-500">
+                          {new Date(event.timestamp || '').toLocaleTimeString()}
+                        </span>
+                      </div>
+                      {data.message && (
+                        <div className="text-slate-600 mt-1">{data.message}</div>
+                      )}
                     </div>
-                    {event.data.message && (
-                      <div className="text-slate-600 mt-1">{event.data.message}</div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
