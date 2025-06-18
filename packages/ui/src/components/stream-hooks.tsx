@@ -42,7 +42,7 @@ export function useSSE(
   const [lastEvent, setLastEvent] = useState<StreamEvent | null>(null);
   
   const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectTimeoutRef = useRef<number | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
   
   const {
@@ -113,7 +113,7 @@ export function useSSE(
         });
       });
 
-      eventSourceRef.current.onerror = (event) => {
+      eventSourceRef.current.onerror = (_event) => {
         setIsConnected(false);
         const error = new Error('SSE connection error');
         setError(error);
@@ -199,7 +199,7 @@ export function useWorkflowProgress(
     if (lastEvent) {
       switch (lastEvent.type) {
         case 'workflow_progress':
-        case 'temporal_status':
+        case 'temporal_status': {
           const newStatus = lastEvent.data.status || lastEvent.data;
           setStatus(newStatus);
           setProgress(newStatus.progress || 0);
@@ -212,6 +212,7 @@ export function useWorkflowProgress(
             newStatus.canceled
           );
           break;
+        }
         case 'error':
           setHasError(true);
           setStatus(prev => prev ? { ...prev, error: lastEvent.data.message } : null);
@@ -256,7 +257,7 @@ export function useFileAnalysisProgress(
   useEffect(() => {
     if (lastEvent) {
       switch (lastEvent.type) {
-        case 'analysis_progress':
+        case 'analysis_progress': {
           const data = lastEvent.data;
           setAnalysisStep(data.step || '');
           setProgress(data.progress || 0);
@@ -266,6 +267,7 @@ export function useFileAnalysisProgress(
             setResult(data.result);
           }
           break;
+        }
         case 'error':
           setHasError(true);
           break;
