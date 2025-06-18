@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { createPipAIClient, type UploadResponse, type WorkflowStatus } from '@pipai/shared';
+import { createPipAIClient, type UploadResponse, type WorkflowStatus } from '@pip-ai/shared';
 
 // Initialize the client (in a real app, this would come from config)
 const uploadClient = createPipAIClient(
