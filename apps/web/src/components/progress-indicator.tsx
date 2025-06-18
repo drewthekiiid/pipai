@@ -250,7 +250,7 @@ export function ProgressIndicator({
               {isConnected ? 'Connected to workflow' : 'Connecting...'}
             </span>
             <code className="text-xs bg-slate-100 px-2 py-1 rounded font-mono">
-              {workflowId.slice(-8)}
+              {workflowId!.slice(-8)}
             </code>
           </div>
           

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 export interface StreamEvent {
   type: string;
-  data: Record<string, unknown>;
+  data: any;  // allow any to simplify downstream property access
   timestamp?: string;
 }
 
