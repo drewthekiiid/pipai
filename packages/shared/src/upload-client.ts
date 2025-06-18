@@ -29,7 +29,7 @@ export interface WorkflowStatus {
     step: string;
     progress: number;
     error?: string;
-    result?: any;
+    result?: unknown;
     canceled?: boolean;
     workflow_status?: string;
   };
