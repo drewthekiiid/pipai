@@ -21,16 +21,6 @@
     },
     "clean": {
       "cache": false
-    },
-    "api:dev": {
-      "cache": false,
-      "persistent": true
-    },
-    "api:build": {
-      "outputs": []
-    },
-    "api:test": {
-      "dependsOn": ["api:build"]
     }
   }
 }
