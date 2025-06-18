@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef } from "react"
 import { Upload, Send, Paperclip, X, FileText, Download, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -45,10 +45,10 @@ export default function FuturisticChat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
-  const [isProcessing, setIsProcessing] = useState(false)
+
   const [dragActive, setDragActive] = useState(false)
-  const [eventSource, setEventSource] = useState<EventSource | null>(null)
-  const [agents, setAgents] = useState<Agent[]>([
+
+  const [agents] = useState<Agent[]>([
     {
       id: "manager",
       name: "Manager",
@@ -94,19 +94,9 @@ export default function FuturisticChat() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  useEffect(() => {
-    return () => {
-      if (eventSource) {
-        eventSource.close()
-      }
-    }
-  }, [eventSource])
 
-  const updateAgentStatus = (agentId: string, status: Agent["status"], isActive = false) => {
-    setAgents((prev) =>
-      prev.map((agent) => (agent.id === agentId ? { ...agent, status, isActive } : { ...agent, isActive: false })),
-    )
-  }
+
+
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -407,7 +397,7 @@ export default function FuturisticChat() {
                   </span>
                   <Button
                     type="submit"
-                    disabled={(stagedFiles.length === 0 && !input.trim()) || isProcessing}
+                    disabled={stagedFiles.length === 0 && !input.trim()}
                     className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white border-0 px-6 py-2 shadow-lg shadow-red-500/25 hover:shadow-xl hover:shadow-red-500/30 transition-all duration-300 disabled:opacity-50"
                   >
                     <Send className="w-4 h-4" />
