@@ -111,9 +111,9 @@ RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /
 RUN ARCH=$(dpkg --print-architecture) && \
     GH_VERSION=$(curl -s https://api.github.com/repos/cli/cli/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/v//') && \
     if [ "$ARCH" = "amd64" ]; then \
-        curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" -o gh.deb; \
+    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" -o gh.deb; \
     else \
-        curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_arm64.deb" -o gh.deb; \
+    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_arm64.deb" -o gh.deb; \
     fi && \
     dpkg -i gh.deb && \
     rm gh.deb
@@ -121,9 +121,9 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # Install latest AWS CLI v2 - Simplified and more reliable
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then \
-        AWS_ARCH="x86_64"; \
+    AWS_ARCH="x86_64"; \
     else \
-        AWS_ARCH="aarch64"; \
+    AWS_ARCH="aarch64"; \
     fi && \
     curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o "awscliv2.zip" && \
     unzip -q awscliv2.zip && \
@@ -157,6 +157,13 @@ RUN apt-get update && apt-get install -y sudo && \
 
 # Switch to non-root user
 USER $USERNAME
+
+# Set up pnpm for the node user (override root configuration)
+ENV PNPM_HOME="/home/node/.local/share/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN mkdir -p "$PNPM_HOME" && \
+    pnpm config set global-bin-dir "$PNPM_HOME" && \
+    pnpm config set global-dir "$PNPM_HOME/global"
 
 # Set working directory
 WORKDIR /workspace
