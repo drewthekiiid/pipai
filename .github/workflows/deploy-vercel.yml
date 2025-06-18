@@ -18,6 +18,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v5
+        with:
+          pulumi-version: 3.x
+          
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -81,4 +86,4 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: `🚀 **Deployment Ready!**\n\n**Preview:** ${deploymentUrl}\n**Status:** ✅ Deployed successfully`
-            }) 
+            })
