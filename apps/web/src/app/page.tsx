@@ -343,6 +343,46 @@ export default function FuturisticChat() {
     if (stagedFiles.length > 0) {
       await startRealWorkflow(stagedFiles)
       setStagedFiles([]) // Clear staged files after submission
+    } else if (input.trim()) {
+      try {
+        const chatResponse = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: input.trim(),
+            userId: 'demo-user', // In a real app, this would come from auth
+          }),
+        })
+
+        if (!chatResponse.ok) {
+          throw new Error(`Chat API failed: ${chatResponse.statusText}`)
+        }
+
+        const chatResult = await chatResponse.json()
+
+        const assistantMessage: Message = {
+          id: chatResult.id || `${Date.now()}-assistant`,
+          type: "assistant",
+          content: chatResult.message,
+          timestamp: new Date(),
+          agent: "Assistant",
+        }
+
+        setMessages((prev) => [...prev, assistantMessage])
+      } catch (error) {
+        console.error('Chat API error:', error)
+        const errorMessage: Message = {
+          id: `${Date.now()}-error`,
+          type: "system",
+          content: `Failed to process message: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          timestamp: new Date(),
+          agent: "System",
+          status: "error",
+        }
+        setMessages((prev) => [...prev, errorMessage])
+      }
     }
 
     setInput("")
