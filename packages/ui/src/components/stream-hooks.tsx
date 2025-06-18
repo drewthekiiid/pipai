@@ -77,7 +77,10 @@ export function useSSE(
           };
           
           setLastEvent(streamEvent);
-          setEvents(prev => [...prev, streamEvent]);
+          setEvents(prev => {
+            const newEvents = [...prev, streamEvent];
+            return newEvents.length > 1000 ? newEvents.slice(-500) : newEvents;
+          });
         } catch (err) {
           console.error('Failed to parse SSE message:', err);
         }
@@ -106,7 +109,10 @@ export function useSSE(
             };
             
             setLastEvent(streamEvent);
-            setEvents(prev => [...prev, streamEvent]);
+            setEvents(prev => {
+              const newEvents = [...prev, streamEvent];
+              return newEvents.length > 1000 ? newEvents.slice(-500) : newEvents;
+            });
           } catch (err) {
             console.error(`Failed to parse ${eventType} event:`, err);
           }
