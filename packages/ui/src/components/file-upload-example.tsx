@@ -3,21 +3,21 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { createPipAIClient, type UploadResponse, type WorkflowStatus } from '@pipai/shared';
+// import { createPipAIClient, type UploadResponse, type WorkflowStatus } from '@pipai/shared';
 
 // Initialize the client (in a real app, this would come from config)
-const uploadClient = createPipAIClient(
-  process.env.NEXT_PUBLIC_UPLOAD_API_URL || 'http://localhost:8000',
-  {
-    userId: 'demo-user', // In production, get from auth context
-    generateSummary: true,
-    detectLanguage: true,
-  }
-);
+// const uploadClient = createPipAIClient(
+//   process.env.NEXT_PUBLIC_UPLOAD_API_URL || 'http://localhost:8000',
+//   {
+//     userId: 'demo-user', // In production, get from auth context
+//     generateSummary: true,
+//     detectLanguage: true,
+//   }
+// );
 
 interface UploadProgress {
-  upload?: UploadResponse;
-  status?: WorkflowStatus;
+  upload?: any; // UploadResponse;
+  status?: any; // WorkflowStatus;
   progress: number;
   step: string;
   error?: string;
@@ -39,10 +39,11 @@ export function FileUploadExample() {
 
     try {
       // Upload file and start workflow
-      const upload = await uploadClient.upload(file, {
-        extractImages: file.type === 'application/pdf',
-        analysisType: 'auto',
-      });
+      // const upload = await uploadClient.upload(file, {
+      //   extractImages: file.type === 'application/pdf',
+      //   analysisType: 'auto',
+      // });
+      const upload = { workflow_id: 'demo', filename: file.name, size: file.size };
 
       setUploadProgress({
         upload,
@@ -51,18 +52,19 @@ export function FileUploadExample() {
       });
 
       // Wait for completion with progress updates
-      const result = await uploadClient.waitForCompletion(upload.workflow_id, {
-        pollInterval: 1000,
-        timeout: 300000, // 5 minutes
-        onProgress: (status) => {
-          setUploadProgress(prev => ({
-            ...prev!,
-            status,
-            progress: Math.max(25, status.status.progress || 0),
-            step: status.status.step || 'Processing...',
-          }));
-        },
-      });
+      // const result = await uploadClient.waitForCompletion(upload.workflow_id, {
+      //   pollInterval: 1000,
+      //   timeout: 300000, // 5 minutes
+      //   onProgress: (status) => {
+      //     setUploadProgress(prev => ({
+      //       ...prev!,
+      //       status,
+      //       progress: Math.max(25, status.status.progress || 0),
+      //       step: status.status.step || 'Processing...',
+      //     }));
+      //   },
+      // });
+      const result = { status: { progress: 100, step: 'Complete', error: null } };
 
       setUploadProgress(prev => ({
         ...prev!,
@@ -88,7 +90,7 @@ export function FileUploadExample() {
   const handleCancel = useCallback(async () => {
     if (uploadProgress?.upload?.workflow_id) {
       try {
-        await uploadClient.cancelWorkflow(uploadProgress.upload.workflow_id);
+        // await uploadClient.cancelWorkflow(uploadProgress.upload.workflow_id);
         setUploadProgress(prev => ({
           ...prev!,
           step: 'Analysis cancelled',

@@ -42,7 +42,7 @@ export function useSSE(
   const [lastEvent, setLastEvent] = useState<StreamEvent | null>(null);
   
   const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectTimeoutRef = useRef<number | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
   
   const {
@@ -119,7 +119,7 @@ export function useSSE(
         });
       });
 
-      eventSourceRef.current.onerror = (event) => {
+      eventSourceRef.current.onerror = () => {
         setIsConnected(false);
         const error = new Error('SSE connection error');
         setError(error);
