@@ -1,88 +1,82 @@
 #!/bin/bash
 
-# PIP AI Unified Development Server Script
-# Starts the unified Next.js app (frontend + API) on port 3000
-
-set -e
+# =============================================================================
+# PIP AI Unified Development Environment Starter
+# =============================================================================
+# This script starts the unified Next.js development environment
+# =============================================================================
 
 echo "🏗️ Starting PIP AI Unified Development Environment..."
 
-# Function to cleanup processes on exit
-cleanup() {
-    echo ""
-    echo "🛑 Stopping development server..."
-    
-    # Kill background processes
-    if [ ! -z "$FRONTEND_PID" ]; then
-        kill $FRONTEND_PID 2>/dev/null || true
-        echo "   ✅ Next.js stopped"
-    fi
-    
-    # Kill any remaining processes on port 3000
+# Check if port 3000 is in use
+if lsof -Pi :3000 -sTCP:LISTEN -t >/dev/null ; then
+    echo "🔍 Checking port 3000..."
+    echo "⚠️  Port 3000 is in use. Stopping existing processes..."
+    # Kill any processes using port 3000
     lsof -ti:3000 | xargs kill -9 2>/dev/null || true
-    
-    echo "🏁 Development environment stopped"
-    exit 0
-}
+    sleep 2
+fi
 
-# Setup cleanup trap
-trap cleanup SIGINT SIGTERM EXIT
-
-# Check if port is available
-check_port() {
-    if lsof -Pi :$1 -sTCP:LISTEN -t >/dev/null ; then
-        echo "❌ Port $1 is already in use. Please free it and try again."
-        exit 1
-    fi
-}
-
-echo "🔍 Checking port 3000..."
-check_port 3000
-
-# Start Next.js (unified frontend + API)
 echo "🚀 Starting unified Next.js app on port 3000..."
-cd apps/web
-npm run dev -- --port 3000 &
-FRONTEND_PID=$!
-cd ../..
 
-# Wait for frontend to start
+# Change to web app directory
+cd apps/web || {
+    echo "❌ Failed to change to apps/web directory"
+    exit 1
+}
+
+# Build shared packages first
+echo "📦 Building shared packages..."
+cd ../../packages/shared && pnpm run build
+cd ../ui && pnpm run build
+cd ../../apps/web
+
 echo "⏳ Waiting for Next.js to start..."
+
+# Start Next.js with regular compiler (not Turbopack) for stability
+npx next dev --port 3000 &
+NEXT_PID=$!
+
+# Wait for Next.js to start
 sleep 8
 
-# Test frontend/API
-if curl -s http://localhost:3000 > /dev/null; then
+# Check if Next.js is running
+if ps -p $NEXT_PID > /dev/null; then
     echo "   ✅ Frontend running on http://localhost:3000"
-else
-    echo "   ⚠️  Frontend may still be starting..."
-fi
-
-# Test API health
-if curl -s http://localhost:3000/api/upload > /dev/null; then
-    echo "   ✅ Unified API running on http://localhost:3000/api"
-else
-    echo "   ⚠️  API may still be starting..."
-fi
-
-echo ""
-echo "🎉 Unified development environment ready!"
-echo ""
-echo "📊 Services:"
-echo "   🌐 Frontend: http://localhost:3000"
-echo "   🔧 API:      http://localhost:3000/api/upload"
-echo "   📊 Health:   http://localhost:3000/api/upload (GET)"
-echo ""
-echo "💡 Press Ctrl+C to stop the development server"
-echo ""
-
-# Keep script running and show logs
-echo "📝 Monitoring Next.js... (Ctrl+C to stop)"
-while true; do
-    sleep 5
     
-    # Check if process is still running
-    if ! kill -0 $FRONTEND_PID 2>/dev/null; then
-        echo "❌ Next.js process died"
-        break
+    # Test the API endpoint
+    if curl -s http://localhost:3000/api/upload > /dev/null; then
+        echo "   ✅ Unified API running on http://localhost:3000/api"
+    else
+        echo "   ⚠️  API may still be starting..."
     fi
-done 
+    
+    echo ""
+    echo "🎉 Unified development environment ready!"
+    echo "📊 Services:"
+    echo "   🌐 Frontend: http://localhost:3000"
+    echo "   🔧 API:      http://localhost:3000/api/upload"
+    echo "   📊 Health:   http://localhost:3000/api/upload (GET)"
+    echo ""
+    echo "💡 Press Ctrl+C to stop the development server"
+    echo "📝 Monitoring Next.js... (Ctrl+C to stop)"
+    
+    # Monitor the Next.js process
+    while ps -p $NEXT_PID > /dev/null; do
+        sleep 5
+    done
+    
+    echo "❌ Next.js process died"
+else
+    echo "❌ Failed to start Next.js"
+    exit 1
+fi
+
+echo "🛑 Stopping development server..."
+# Clean up
+if ps -p $NEXT_PID > /dev/null; then
+    kill $NEXT_PID 2>/dev/null || true
+    echo "   ✅ Next.js stopped"
+fi
+
+echo "🏁 Development environment stopped" 
