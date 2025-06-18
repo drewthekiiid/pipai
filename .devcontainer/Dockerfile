@@ -1,12 +1,12 @@
-# Use the latest official Node.js LTS image (Node 22.x LTS "Jod") as base
-FROM node:22-bullseye
+# Use the latest official Node.js LTS image (Node 22.x LTS "Jod") with Debian Bookworm
+FROM node:22-bookworm
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=development
 ENV PYTHONUNBUFFERED=1
 ENV PNPM_VERSION=10.12.1
-ENV PYTHON_VERSION=3.12.11
+ENV PYTHON_VERSION=3.11
 
 # Install system dependencies and latest tools
 RUN apt-get update && apt-get install -y \
@@ -17,10 +17,10 @@ RUN apt-get update && apt-get install -y \
     git \
     vim \
     nano \
-    # Latest Python 3.12
-    python3.12 \
-    python3.12-dev \
-    python3.12-venv \
+    # Python 3.11 (available in Bookworm)
+    python3.11 \
+    python3.11-dev \
+    python3.11-venv \
     python3-pip \
     # Database clients
     postgresql-client \
@@ -40,20 +40,26 @@ RUN apt-get update && apt-get install -y \
     # Network tools
     iputils-ping \
     telnet \
-    netcat \
+    netcat-openbsd \
     # Process management
     htop \
     && rm -rf /var/lib/apt/lists/*
 
-# Create symbolic links for python3.12
-RUN ln -sf /usr/bin/python3.12 /usr/local/bin/python && \
-    ln -sf /usr/bin/python3.12 /usr/local/bin/python3
+# Create symbolic links for python3.11
+RUN ln -sf /usr/bin/python3.11 /usr/local/bin/python && \
+    ln -sf /usr/bin/python3.11 /usr/local/bin/python3
 
-# Install latest pip and Python tools
-RUN python -m pip install --upgrade pip setuptools wheel
+# Install latest pip and Python tools (using --break-system-packages for dev container)
+RUN python -m pip install --upgrade pip setuptools wheel --break-system-packages
 
 # Install latest pnpm globally (faster than npm)
 RUN npm install -g pnpm@${PNPM_VERSION}
+
+# Set up pnpm for global installations manually
+ENV PNPM_HOME="/root/.local/share/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN mkdir -p "$PNPM_HOME" && \
+    pnpm config set global-bin-dir "$PNPM_HOME"
 
 # Install latest global Node.js tools
 RUN pnpm add -g \
@@ -65,8 +71,8 @@ RUN pnpm add -g \
     prettier@latest \
     @next/codemod@latest
 
-# Install latest Python development tools
-RUN pip install --no-cache-dir \
+# Install latest Python development tools (using --break-system-packages for dev container)
+RUN pip install --no-cache-dir --break-system-packages \
     # Latest FastAPI stack
     fastapi[all]==0.108.0 \
     uvicorn[standard]==0.25.0 \
@@ -109,8 +115,12 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     apt-get install -y gh && \
     rm -rf /var/lib/apt/lists/*
 
-# Install latest AWS CLI v2
-RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+# Install latest AWS CLI v2 - Fixed for ARM64 compatibility
+RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+    else \
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
+    fi && \
     unzip awscliv2.zip && \
     ./aws/install && \
     rm -rf awscliv2.zip aws/
@@ -121,7 +131,8 @@ RUN curl -fsSL https://get.pulumi.com | sh && \
 
 # Install latest Temporal CLI
 RUN curl -sSf https://temporal.download/cli.sh | sh && \
-    mv tctl /usr/local/bin/
+    mv /root/.temporalio/bin/temporal /usr/local/bin/temporal && \
+    ln -sf /usr/local/bin/temporal /usr/local/bin/tctl
 
 # Create non-root user with same UID as host (for file permissions)
 ARG USERNAME=node

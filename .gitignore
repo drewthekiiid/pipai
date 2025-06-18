@@ -45,3 +45,4 @@ fly.toml
 /generated/prisma
 .env
 .env.local
+.vercel

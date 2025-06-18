@@ -98,7 +98,7 @@ async function createWorker(connection: NativeConnection): Promise<Worker> {
       connection,
       namespace: config.temporal.namespace,
       taskQueue: config.worker.taskQueue,
-      workflowsPath: fileURLToPath(new URL('./workflows.js', import.meta.url)),
+      workflowsPath: fileURLToPath(new URL('./workflows.ts', import.meta.url)),
       activities,
       // Conservative settings for Temporal Cloud
       maxConcurrentActivityTaskExecutions: 1,
