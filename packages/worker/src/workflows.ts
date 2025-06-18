@@ -74,7 +74,7 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
   };
 
   // Set up signal handlers
-  setHandler(analysisProgressSignal, (update) => {
+  setHandler(analysisProgressSignal, (update: { step: string; progress: number }) => {
     status = { ...status, ...update };
     log.info('Analysis progress update', { analysisId, ...update });
   });
@@ -271,4 +271,27 @@ export async function batchAnalyzeWorkflow(inputs: AnalysisInput[]): Promise<Ana
   }
 
   return results;
+}
+
+export async function chatWorkflow(input: { text: string; files?: Array<{ name: string; size: number; type: string }> }): Promise<{ analysis: string }> {
+  const activityId = `chat-${Date.now()}`;
+  
+  log.info('Starting chat workflow', { activityId, messageLength: input.text.length });
+
+  try {
+    const result = await runAIAnalysisActivity({
+      text: input.text,
+      analysisType: 'document',
+      metadata: { source: 'chat', activityId }
+    });
+
+    log.info('Chat workflow completed successfully', { activityId });
+    
+    return {
+      analysis: result.summary || result.insights?.join('\n') || 'I processed your message successfully.'
+    };
+  } catch (error) {
+    log.error('Chat workflow failed', { activityId, error });
+    throw error;
+  }
 }
