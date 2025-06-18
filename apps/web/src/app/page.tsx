@@ -1,7 +1,6 @@
 "use client"
 
-import type React from "react"
-
+import React from "react"
 import { useState, useRef, useEffect } from "react"
 import { Upload, Send, Paperclip, X, FileText, Download, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -95,7 +94,6 @@ export default function FuturisticChat() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Cleanup EventSource on unmount
   useEffect(() => {
     return () => {
       if (eventSource) {
@@ -146,212 +144,81 @@ export default function FuturisticChat() {
     setStagedFiles((prev) => prev.filter((file) => file.id !== id))
   }
 
-  // Real backend workflow integration
-  const startRealWorkflow = async (files: StagedFile[]) => {
-    setIsProcessing(true)
-    
+  const onSendMessage = async (message: string, files?: File[]) => {
+    if (!message.trim() && (!files || files.length === 0)) return
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      type: "user",
+      content: message,
+      timestamp: new Date(),
+      files: files?.map((file) => ({
+        id: `${Date.now()}-${Math.random()}`,
+        file,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      })),
+    }
+
+    setMessages((prev) => [...prev, userMessage])
+
     try {
-      // Upload files sequentially and collect workflow IDs
-      const workflowIds: string[] = []
-      
-      for (const stagedFile of files) {
-        updateAgentStatus("manager", "processing", true)
-        
-        const uploadMessage: Message = {
-          id: Date.now().toString(),
-          type: "agent-step",
-          content: `Uploading ${stagedFile.name} to secure storage and starting analysis...`,
-          timestamp: new Date(),
-          agent: "Manager",
-          agentId: "manager",
-          status: "processing",
-        }
-        setMessages((prev) => [...prev, uploadMessage])
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message,
+          files: files?.map((file) => ({
+            name: file.name,
+            size: file.size,
+            type: file.type,
+          })),
+        }),
+      })
 
-        // Upload file to backend
-        const formData = new FormData()
-        formData.append('file', stagedFile.file)
-        formData.append('userId', 'demo-user') // In a real app, this would come from auth
-        formData.append('analysisType', 'construction')
-
-        const uploadResponse = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        })
-
-        if (!uploadResponse.ok) {
-          throw new Error(`Upload failed: ${uploadResponse.statusText}`)
-        }
-
-        const uploadResult = await uploadResponse.json()
-        workflowIds.push(uploadResult.workflowId)
-
-        const uploadSuccessMessage: Message = {
-          id: `${Date.now()}-${Math.random()}`,
-          type: "agent-step",
-          content: `✅ ${stagedFile.name} uploaded successfully. Analysis workflow started (ID: ${uploadResult.workflowId.slice(0, 8)}...)`,
-          timestamp: new Date(),
-          agent: "Manager",
-          agentId: "manager",
-          status: "complete",
-        }
-        setMessages((prev) => [...prev, uploadSuccessMessage])
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      // Stream progress for all workflows
-      await streamWorkflowProgress(workflowIds)
-      
-    } catch (error) {
-      console.error('Workflow failed:', error)
-      const errorMessage: Message = {
-        id: Date.now().toString(),
-        type: "agent-step",
-        content: `❌ Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      const data = await response.json()
+
+      const assistantMessage: Message = {
+        id: `${Date.now()}-assistant`,
+        type: "assistant",
+        content: data.response,
         timestamp: new Date(),
-        agent: "Manager",
-        agentId: "manager",
-        status: "error",
+      }
+
+      setMessages((prev) => [...prev, assistantMessage])
+    } catch (error) {
+      console.error("Error sending message:", error)
+      const errorMessage: Message = {
+        id: `${Date.now()}-error`,
+        type: "system",
+        content: "Sorry, I encountered an error processing your message. Please try again.",
+        timestamp: new Date(),
       }
       setMessages((prev) => [...prev, errorMessage])
-      setIsProcessing(false)
-      setAgents((prev) => prev.map((agent) => ({ ...agent, status: "idle", isActive: false })))
-    }
-  }
-
-  // Stream workflow progress using Server-Sent Events
-  const streamWorkflowProgress = async (workflowIds: string[]) => {
-    try {
-      // For now, stream the first workflow (could be enhanced to handle multiple)
-      const workflowId = workflowIds[0]
-      
-      const eventSource = new EventSource(`/api/stream/${workflowId}`)
-      setEventSource(eventSource)
-      
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          
-          // Map backend progress to agent updates
-          if (data.type === 'progress') {
-            const agentMap: Record<string, string> = {
-              'file_processing': 'file-reader',
-              'content_extraction': 'file-reader', 
-              'trade_analysis': 'trade-mapper',
-              'cost_estimation': 'estimator',
-              'report_generation': 'exporter',
-            }
-            
-            const agentId = agentMap[data.step] || 'manager'
-            const agentName = agents.find(a => a.id === agentId)?.name || 'System'
-            
-            updateAgentStatus(agentId, "processing", true)
-            
-            const progressMessage: Message = {
-              id: `${Date.now()}-${Math.random()}`,
-              type: "agent-step",
-              content: data.message,
-              timestamp: new Date(),
-              agent: agentName,
-              agentId: agentId,
-              status: "processing",
-            }
-            setMessages((prev) => [...prev, progressMessage])
-          }
-          
-          if (data.type === 'complete') {
-            // Mark all agents as complete
-            setAgents((prev) => prev.map((agent) => ({ ...agent, status: "complete", isActive: false })))
-            
-            const completionMessage: Message = {
-              id: `${Date.now()}-${Math.random()}`,
-              type: "agent-step",
-              content: "✅ Analysis complete! All deliverables have been generated successfully.",
-              timestamp: new Date(),
-              agent: "Manager",
-              agentId: "manager",
-              status: "complete",
-              deliverables: data.results?.map((result: { filename: string; type: string; url?: string }) => ({
-                name: result.filename,
-                type: result.type,
-                downloadUrl: result.url,
-              })) || [
-                { name: "Analysis_Report.pdf", type: "pdf" },
-                { name: "Cost_Estimates.xlsx", type: "xlsx" },
-                { name: "Data_Export.json", type: "json" },
-              ],
-            }
-            setMessages((prev) => [...prev, completionMessage])
-            
-            setIsProcessing(false)
-            eventSource.close()
-            setEventSource(null)
-          }
-          
-          if (data.type === 'error') {
-            const errorMessage: Message = {
-              id: `${Date.now()}-${Math.random()}`,
-              type: "agent-step",
-              content: `❌ Analysis failed: ${data.message}`,
-              timestamp: new Date(),
-              agent: "Manager",
-              agentId: "manager",
-              status: "error",
-            }
-            setMessages((prev) => [...prev, errorMessage])
-            
-            setIsProcessing(false)
-            setAgents((prev) => prev.map((agent) => ({ ...agent, status: "error", isActive: false })))
-            eventSource.close()
-            setEventSource(null)
-          }
-          
-        } catch (err) {
-          console.error('Failed to parse SSE data:', err)
-        }
-      }
-      
-      eventSource.onerror = (error) => {
-        console.error('EventSource failed:', error)
-        eventSource.close()
-        setEventSource(null)
-        setIsProcessing(false)
-        setAgents((prev) => prev.map((agent) => ({ ...agent, status: "error", isActive: false })))
-      }
-      
-    } catch (error) {
-      console.error('Failed to start streaming:', error)
-      setIsProcessing(false)
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (stagedFiles.length === 0 && !input.trim()) return
+    if (!input.trim() && stagedFiles.length === 0) return
 
-    // Create user message
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      type: "user",
-      content: input || "Process uploaded files",
-      timestamp: new Date(),
-      files: stagedFiles.length > 0 ? [...stagedFiles] : undefined,
-    }
-
-    setMessages((prev) => [...prev, userMessage])
-
-    // Start real workflow if files are staged
-    if (stagedFiles.length > 0) {
-      await startRealWorkflow(stagedFiles)
-      setStagedFiles([]) // Clear staged files after submission
-    }
-
+    const files = stagedFiles.map((sf) => sf.file)
+    await onSendMessage(input, files)
     setInput("")
+    setStagedFiles([])
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
-      handleSubmit(e as React.FormEvent)
+      handleSubmit(e as unknown as React.FormEvent)
     }
   }
 
@@ -363,150 +230,72 @@ export default function FuturisticChat() {
     return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
   }
 
-  const abortWorkflow = () => {
-    // Close event source if running
-    if (eventSource) {
-      eventSource.close()
-      setEventSource(null)
-    }
-    
-    setIsProcessing(false)
-    setAgents((prev) => prev.map((agent) => ({ ...agent, status: "idle", isActive: false })))
-
-    const abortMessage: Message = {
-      id: Date.now().toString(),
-      type: "system",
-      content: "Workflow aborted by user. All agent processes have been terminated.",
-      timestamp: new Date(),
-      agent: "Manager",
-      status: "error",
-    }
-    setMessages((prev) => [...prev, abortMessage])
-  }
-
   return (
-    <div className="h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800 flex flex-col fixed inset-0 overflow-hidden">
-      {/* Subtle background pattern */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(239,68,68,0.03),transparent_50%)] dark:bg-[radial-gradient(circle_at_50%_50%,rgba(239,68,68,0.05),transparent_50%)]" />
-
-      {/* Agent Legend - Fixed Header */}
-      <div className="flex-shrink-0 border-b border-slate-200/50 dark:border-slate-700/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-xl relative z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <h2 className="text-sm font-medium text-slate-700 dark:text-slate-300">Active Agents</h2>
-              {agents.map((agent) => (
-                <div key={agent.id} className="flex items-center space-x-2">
-                  <div
-                    className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                      agent.isActive
-                        ? `bg-gradient-to-r ${agent.color} animate-pulse shadow-lg shadow-current`
-                        : agent.status === "complete"
-                          ? "bg-green-500"
-                          : agent.status === "error"
-                            ? "bg-red-500"
-                            : "bg-slate-300 dark:bg-slate-600"
-                    }`}
-                  />
-                  <span className="text-xs text-slate-600 dark:text-slate-400">{agent.name}</span>
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center space-x-2">
-              {isProcessing && (
-                <Button
-                  onClick={abortWorkflow}
-                  size="sm"
-                  variant="outline"
-                  className="text-red-600 border-red-200 hover:bg-red-50"
-                >
-                  Abort Workflow
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 flex flex-col relative overflow-hidden">
+      {/* Background Pattern */}
+      <div className="absolute inset-0 opacity-30" style={{
+        backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23f1f5f9' fill-opacity='0.4'%3E%3Ccircle cx='30' cy='30' r='1.5'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
+      }} />
 
       {/* Messages Area - Scrollable */}
       <div className="flex-1 overflow-y-auto px-4 py-8 relative z-10">
         {messages.length === 0 ? (
-          // Empty State
           <div className="h-full flex flex-col items-center justify-center text-center max-w-2xl mx-auto">
             <div className="w-20 h-20 bg-gradient-to-br from-red-500 to-red-600 rounded-full flex items-center justify-center mb-8 shadow-2xl shadow-red-500/25">
-              <div className="w-8 h-8 bg-white rounded-sm flex items-center justify-center">
-                <div className="w-4 h-3 bg-red-500 rounded-sm" />
-              </div>
+              <Upload className="w-8 h-8 text-white" />
             </div>
-
-            <h1 className="text-4xl font-light text-slate-900 dark:text-slate-100 mb-4 tracking-tight">Let&apos;s Build!</h1>
-
-            <p className="text-slate-600 dark:text-slate-400 mb-8 text-lg font-light">
-              Start a new conversation, upload files, or paste content URLs.
+            <h1 className="text-4xl font-bold text-slate-900 dark:text-white mb-4 tracking-tight">
+              Welcome to PIP AI
+            </h1>
+            <p className="text-lg text-slate-600 dark:text-slate-300 mb-8 leading-relaxed font-light">
+              Your intelligent construction document analysis assistant. Upload plans, specifications, or ask questions
+              to get started.
             </p>
-
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white border-0 px-8 py-3 text-base font-medium shadow-lg shadow-red-500/25 hover:shadow-xl hover:shadow-red-500/30 transition-all duration-300"
-            >
-              <Upload className="w-5 h-5 mr-2" />
-              Upload Files
-            </Button>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-3xl">
+              {agents.map((agent) => (
+                <div
+                  key={agent.id}
+                  className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all duration-300"
+                >
+                  <div className={`w-8 h-8 bg-gradient-to-r ${agent.color} rounded-lg mb-3`} />
+                  <h3 className="font-semibold text-slate-900 dark:text-white mb-1">{agent.name}</h3>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 font-light">{agent.description}</p>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
-          // Messages
           <div className="max-w-4xl mx-auto space-y-6">
             {messages.map((message) => (
-              <div key={message.id} className={`flex ${message.type === "user" ? "justify-end" : "justify-start"}`}>
+              <div
+                key={message.id}
+                className={`flex ${message.type === "user" ? "justify-end" : "justify-start"}`}
+              >
                 <div
-                  className={`max-w-2xl px-6 py-4 rounded-2xl ${
+                  className={`max-w-[80%] rounded-2xl px-6 py-4 shadow-lg ${
                     message.type === "user"
-                      ? "bg-gradient-to-br from-red-500 to-red-600 text-white shadow-lg shadow-red-500/25"
-                      : message.type === "system"
-                        ? "bg-gradient-to-br from-slate-500 to-slate-600 text-white shadow-lg shadow-slate-500/25"
-                        : message.type === "agent-step"
-                          ? message.status === "waiting"
-                            ? "bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-lg shadow-amber-500/25"
-                            : message.status === "complete"
-                              ? "bg-gradient-to-br from-green-500 to-green-600 text-white shadow-lg shadow-green-500/25"
-                              : "bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/25"
-                          : "bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-lg shadow-slate-200/50 dark:shadow-slate-900/50 border border-slate-200/50 dark:border-slate-700/50"
+                      ? "bg-gradient-to-r from-red-500 to-red-600 text-white"
+                      : message.type === "agent-step"
+                        ? `bg-gradient-to-r ${
+                            agents.find((a) => a.id === message.agentId)?.color || "from-slate-500 to-slate-600"
+                          } text-white`
+                        : "bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700"
                   }`}
                 >
-                  {message.agent && (
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-xs opacity-75 font-medium">{message.agent}</div>
-                      {message.stepNumber && message.totalSteps && (
-                        <div className="text-xs opacity-75">
-                          Step {message.stepNumber}/{message.totalSteps}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {message.files && message.files.length > 0 && (
-                    <div className="mb-3 space-y-2">
-                      {message.files.map((file) => (
-                        <div key={file.id} className="flex items-center space-x-2 p-2 bg-white/10 rounded-lg">
-                          <FileText className="w-4 h-4" />
-                          <span className="text-sm font-medium">{file.name}</span>
-                          <span className="text-xs opacity-75">({formatFileSize(file.size)})</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
                   <div className="flex items-start space-x-3">
-                    {message.status === "processing" && (
-                      <div className="flex space-x-1 mt-1">
-                        <div className="w-1.5 h-1.5 bg-white rounded-full animate-bounce" />
+                    {message.type === "agent-step" && message.status === "processing" && (
+                      <div className="flex-shrink-0 mt-1">
                         <div
-                          className="w-1.5 h-1.5 bg-white rounded-full animate-bounce"
-                          style={{ animationDelay: "0.1s" }}
+                          className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"
+                          style={{ animationDuration: "0.8s" }}
                         />
+                      </div>
+                    )}
+                    {message.type === "agent-step" && message.status === "complete" && (
+                      <div className="flex-shrink-0 mt-1">
                         <div
-                          className="w-1.5 h-1.5 bg-white rounded-full animate-bounce"
-                          style={{ animationDelay: "0.2s" }}
+                          className="w-4 h-4 bg-white rounded-full flex items-center justify-center"
+                          style={{ animationDuration: "0.2s" }}
                         />
                       </div>
                     )}

@@ -121,15 +121,6 @@ interface AnalysisInput {
   };
 }
 
-// Helper functions (currently unused but kept for future use)
-// function getContentTypeCategory(contentType: string): 'document' | 'code' | 'data' | 'image' {
-//   if (contentType.startsWith('image/')) return 'image';
-//   if (contentType.includes('json') || contentType.includes('csv') || contentType.includes('xml')) return 'data';
-//   if (contentType.includes('javascript') || contentType.includes('typescript') || 
-//       contentType.includes('python') || contentType.includes('code')) return 'code';
-//   return 'document';
-// }
-
 function generateS3Key(userId: string, filename: string): string {
   const fileId = uuidv4();
   const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '/');

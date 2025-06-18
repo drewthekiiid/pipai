@@ -5,10 +5,6 @@
 
 import { Client } from '@temporalio/client';
 import { Connection } from '@temporalio/client';
-import { config as loadEnv } from 'dotenv';
-
-// Load environment variables from the .env.local file
-loadEnv({ path: '.env.local' });
 
 // Load environment variables
 const config = {
