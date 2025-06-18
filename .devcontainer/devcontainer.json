@@ -1,0 +1,141 @@
+{
+  "name": "🏗️ Construction AI Dev Environment",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "devcontainer",
+  "workspaceFolder": "/workspace",
+  "shutdownAction": "stopCompose",
+
+  // Configure tool-specific properties
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // TypeScript & JavaScript
+        "ms-vscode.vscode-typescript-next",
+        "bradlc.vscode-tailwindcss",
+        "ms-vscode.vscode-json",
+        
+        // React & Next.js
+        "dsznajder.es7-react-js-snippets",
+        "formulahendry.auto-rename-tag",
+        "christian-kohler.path-intellisense",
+        
+        // Python & FastAPI
+        "ms-python.python",
+        "ms-python.flake8",
+        "ms-python.black-formatter",
+        "ms-python.isort",
+        "ms-toolsai.jupyter",
+        
+        // Docker & DevOps
+        "ms-vscode-remote.remote-containers",
+        "ms-azuretools.vscode-docker",
+        "github.vscode-github-actions",
+        
+        // Git & GitHub
+        "github.vscode-pull-request-github",
+        "eamodio.gitlens",
+        "github.copilot",
+        "github.copilot-chat",
+        
+        // Monorepo & Build Tools
+        "bradlc.vscode-tailwindcss",
+        "ms-vscode.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "orta.vscode-twoslash-queries",
+        
+        // AI & LLM Development
+        "ms-toolsai.vscode-ai",
+        "continue.continue",
+        
+        // Temporal Workflow
+        "temporalio.temporal",
+        
+        // Productivity
+        "ms-vscode.vscode-thunder-client",
+        "humao.rest-client",
+        "redhat.vscode-yaml",
+        "ms-vscode.vscode-markdown"
+      ],
+      
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.flake8Enabled": true,
+        "python.formatting.provider": "black",
+        "typescript.preferences.includePackageJsonAutoImports": "auto",
+        "eslint.workingDirectories": ["apps/web", "packages"],
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit",
+          "source.organizeImports": "explicit"
+        },
+        "files.exclude": {
+          "**/node_modules": true,
+          "**/__pycache__": true,
+          "**/.next": true,
+          "**/dist": true
+        },
+        "search.exclude": {
+          "**/node_modules": true,
+          "**/dist": true,
+          "**/.next": true
+        }
+      }
+    }
+  },
+
+  // Forward ports for development servers
+  "forwardPorts": [
+    3000,  // Next.js frontend
+    3001,  // Next.js (alternate)
+    8000,  // FastAPI backend
+    8080,  // Temporal UI
+    5432,  // PostgreSQL
+    6379   // Redis
+  ],
+  
+  "portsAttributes": {
+    "3000": {
+      "label": "Next.js Frontend",
+      "onAutoForward": "notify"
+    },
+    "3001": {
+      "label": "Next.js (Turbopack)",
+      "onAutoForward": "notify"
+    },
+    "8000": {
+      "label": "FastAPI Backend",
+      "onAutoForward": "notify"
+    },
+    "8080": {
+      "label": "Temporal UI",
+      "onAutoForward": "silent"
+    }
+  },
+
+  // Lifecycle scripts
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postStartCommand": "git config --global --add safe.directory /workspace",
+
+  // Container user
+  "remoteUser": "node",
+  "containerUser": "node",
+
+  // Features for additional tools
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/aws-cli:1": {},
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+
+  // Environment variables
+  "containerEnv": {
+    "SHELL": "/bin/bash"
+  },
+
+  // Mount the Docker socket for Docker-in-Docker
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+  ]
+} 
