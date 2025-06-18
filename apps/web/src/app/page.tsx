@@ -45,7 +45,6 @@ export default function FuturisticChat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([])
-
   const [dragActive, setDragActive] = useState(false)
 
   const [agents] = useState<Agent[]>([
