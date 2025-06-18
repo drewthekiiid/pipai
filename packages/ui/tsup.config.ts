@@ -1,4 +1,4 @@
-export default {
+const config = {
   entry: ["src/index.ts"],
   format: ["cjs", "esm"],
   dts: true,
@@ -7,3 +7,5 @@ export default {
   clean: true,
   external: ["react", "react-dom"],
 }
+
+export default config
