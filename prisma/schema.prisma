@@ -1,0 +1,263 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String               @id @default(cuid())
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  clerkId       String               @unique
+  email         String               @unique
+  firstName     String?
+  lastName      String?
+  imageUrl      String?
+  preferences   Json?
+  aiWorkflows   AIWorkflow[]
+  files         File[]
+  organizations OrganizationMember[]
+  sessions      Session[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime
+  token     String   @unique
+  userId    String
+  metadata  Json?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Organization {
+  id          String               @id @default(cuid())
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  clerkOrgId  String               @unique
+  name        String
+  slug        String               @unique
+  imageUrl    String?
+  settings    Json?
+  aiWorkflows AIWorkflow[]
+  files       File[]
+  members     OrganizationMember[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  userId         String
+  organizationId String
+  role           MemberRole   @default(MEMBER)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@map("organization_members")
+}
+
+model File {
+  id               String            @id @default(cuid())
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  name             String
+  originalName     String
+  mimeType         String
+  size             Int
+  checksum         String?
+  storageType      StorageType       @default(VERCEL_BLOB)
+  storageKey       String
+  url              String?
+  tags             String[]
+  metadata         Json?
+  userId           String?
+  organizationId   String?
+  aiProcessingJobs AIProcessingJob[]
+  embeddings       FileEmbedding[]
+  organization     Organization?     @relation(fields: [organizationId], references: [id])
+  user             User?             @relation(fields: [userId], references: [id])
+
+  @@map("files")
+}
+
+model AIWorkflow {
+  id             String                @id @default(cuid())
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  name           String
+  description    String?
+  version        String                @default("1.0.0")
+  status         WorkflowStatus        @default(DRAFT)
+  definition     Json
+  config         Json?
+  userId         String?
+  organizationId String?
+  executions     AIWorkflowExecution[]
+  organization   Organization?         @relation(fields: [organizationId], references: [id])
+  user           User?                 @relation(fields: [userId], references: [id])
+
+  @@map("ai_workflows")
+}
+
+model AIWorkflowExecution {
+  id                 String            @id @default(cuid())
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  completedAt        DateTime?
+  status             ExecutionStatus   @default(PENDING)
+  input              Json
+  output             Json?
+  error              String?
+  metadata           Json?
+  temporalWorkflowId String?
+  temporalRunId      String?
+  workflowId         String
+  processingJobs     AIProcessingJob[]
+  workflow           AIWorkflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@map("ai_workflow_executions")
+}
+
+model AIProcessingJob {
+  id          String               @id @default(cuid())
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  completedAt DateTime?
+  type        ProcessingType
+  status      JobStatus            @default(QUEUED)
+  priority    Int                  @default(0)
+  input       Json
+  output      Json?
+  error       String?
+  metadata    Json?
+  progress    Float?
+  currentStep String?
+  fileId      String?
+  executionId String?
+  execution   AIWorkflowExecution? @relation(fields: [executionId], references: [id])
+  file        File?                @relation(fields: [fileId], references: [id])
+
+  @@map("ai_processing_jobs")
+}
+
+model FileEmbedding {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  model      String
+  dimensions Int
+  chunkIndex Int      @default(0)
+  chunkText  String
+  qdrantId   String?
+  metadata   Json?
+  fileId     String
+  file       File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@map("file_embeddings")
+}
+
+model SystemEvent {
+  id        String     @id @default(cuid())
+  createdAt DateTime   @default(now())
+  type      EventType
+  level     EventLevel @default(INFO)
+  message   String
+  details   Json?
+  userId    String?
+  resource  String?
+  metadata  Json?
+
+  @@map("system_events")
+}
+
+model ApiUsage {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  provider  String
+  model     String
+  operation String
+  tokens    Int?
+  cost      Float?
+  latency   Int?
+  userId    String?
+  metadata  Json?
+
+  @@map("api_usage")
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum StorageType {
+  VERCEL_BLOB
+  AWS_S3
+  LOCAL
+}
+
+enum WorkflowStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum ExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ProcessingType {
+  TEXT_EXTRACTION
+  IMAGE_ANALYSIS
+  DOCUMENT_PARSING
+  EMBEDDING_GENERATION
+  SENTIMENT_ANALYSIS
+  CLASSIFICATION
+  SUMMARIZATION
+  TRANSLATION
+}
+
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum EventType {
+  USER_ACTION
+  SYSTEM_ERROR
+  WORKFLOW_EVENT
+  FILE_EVENT
+  AUTH_EVENT
+  PERFORMANCE_METRIC
+}
+
+enum EventLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+  CRITICAL
+}

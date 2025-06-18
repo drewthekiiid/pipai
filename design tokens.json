@@ -1,0 +1,194 @@
+{
+  "colors": {
+    "cdoRed": {
+      "$type": "color",
+      "$value": "#EF2323"
+    },
+    "silver": {
+      "$type": "color",
+      "$value": "#C0C0C0"
+    },
+    "charcoal": {
+      "$type": "color",
+      "$value": "#18181A"
+    },
+    "white": {
+      "$type": "color",
+      "$value": "#FFFFFF"
+    },
+    "background": {
+      "$type": "color",
+      "$value": "{colors.charcoal}"
+    },
+    "surface": {
+      "$type": "color",
+      "$value": "{colors.silver}"
+    },
+    "border": {
+      "$type": "color",
+      "$value": "{colors.silver}"
+    },
+    "borderActive": {
+      "$type": "color",
+      "$value": "{colors.cdoRed}"
+    },
+    "textPrimary": {
+      "$type": "color",
+      "$value": "{colors.white}"
+    },
+    "textSecondary": {
+      "$type": "color",
+      "$value": "{colors.silver}"
+    },
+    "textAccent": {
+      "$type": "color",
+      "$value": "{colors.cdoRed}"
+    }
+  },
+  "dimension": {
+    "scale": {
+      "$type": "dimension",
+      "$value": "2"
+    },
+    "xs": {
+      "$type": "dimension",
+      "$value": "4"
+    },
+    "sm": {
+      "$type": "dimension",
+      "$value": "{dimension.xs} * {dimension.scale}"
+    },
+    "md": {
+      "$type": "dimension",
+      "$value": "{dimension.sm} * {dimension.scale}"
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": "{dimension.md} * {dimension.scale}"
+    },
+    "xl": {
+      "$type": "dimension",
+      "$value": "{dimension.lg} * {dimension.scale}"
+    }
+  },
+  "spacing": {
+    "xs": {
+      "$type": "spacing",
+      "$value": "{dimension.xs}"
+    },
+    "sm": {
+      "$type": "spacing",
+      "$value": "{dimension.sm}"
+    },
+    "md": {
+      "$type": "spacing",
+      "$value": "{dimension.md}"
+    },
+    "lg": {
+      "$type": "spacing",
+      "$value": "{dimension.lg}"
+    },
+    "xl": {
+      "$type": "spacing",
+      "$value": "{dimension.xl}"
+    }
+  },
+  "borderRadius": {
+    "sm": {
+      "$type": "borderRadius",
+      "$value": "6"
+    },
+    "md": {
+      "$type": "borderRadius",
+      "$value": "12"
+    },
+    "lg": {
+      "$type": "borderRadius",
+      "$value": "18"
+    },
+    "full": {
+      "$type": "borderRadius",
+      "$value": "999"
+    }
+  },
+  "boxShadow": {
+    "dock": {
+      "$type": "boxShadow",
+      "$value": "0 4px 20px 0 rgba(0,0,0,0.18)"
+    }
+  },
+  "fontFamilies": {
+    "display": {
+      "$type": "fontFamilies",
+      "$value": "Satoshi"
+    },
+    "heading": {
+      "$type": "fontFamilies",
+      "$value": "Space Grotesk"
+    },
+    "body": {
+      "$type": "fontFamilies",
+      "$value": "Manrope"
+    },
+    "label": {
+      "$type": "fontFamilies",
+      "$value": "Outfit"
+    }
+  },
+  "fontWeights": {
+    "regular": {
+      "$type": "fontWeights",
+      "$value": "400"
+    },
+    "medium": {
+      "$type": "fontWeights",
+      "$value": "500"
+    },
+    "bold": {
+      "$type": "fontWeights",
+      "$value": "700"
+    }
+  },
+  "fontSizes": {
+    "display": {
+      "$type": "fontSizes",
+      "$value": "40"
+    },
+    "heading": {
+      "$type": "fontSizes",
+      "$value": "28"
+    },
+    "body": {
+      "$type": "fontSizes",
+      "$value": "18"
+    },
+    "label": {
+      "$type": "fontSizes",
+      "$value": "14"
+    }
+  },
+  "lineHeights": {
+    "tight": {
+      "$type": "lineHeights",
+      "$value": "115%"
+    },
+    "normal": {
+      "$type": "lineHeights",
+      "$value": "140%"
+    },
+    "loose": {
+      "$type": "lineHeights",
+      "$value": "160%"
+    }
+  },
+  "letterSpacing": {
+    "default": {
+      "$type": "letterSpacing",
+      "$value": "0"
+    },
+    "wide": {
+      "$type": "letterSpacing",
+      "$value": "2%"
+    }
+  }
+}

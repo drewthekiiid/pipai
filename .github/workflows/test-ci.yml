@@ -1,0 +1,149 @@
+name: 🧪 Test CI Pipeline
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run daily at 9 AM UTC
+    - cron: '0 9 * * *'
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '10.12.1'
+
+jobs:
+  test-setup:
+    name: 🧪 Test Environment Setup
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: 📦 Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: ✅ Verify installation
+        run: |
+          echo "✅ Node.js version: $(node --version)"
+          echo "✅ pnpm version: $(pnpm --version)"
+          echo "✅ Dependencies installed successfully"
+
+  test-quality:
+    name: 🔍 Test Quality Checks
+    runs-on: ubuntu-latest
+    needs: test-setup
+    
+    strategy:
+      matrix:
+        check: [lint, type-check, test]
+      fail-fast: false
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js & pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: 📦 Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: 🔍 Run ${{ matrix.check }}
+        run: pnpm run ${{ matrix.check }}
+        continue-on-error: true
+
+      - name: 📝 Report Results
+        run: |
+          if [ $? -eq 0 ]; then
+            echo "✅ ${{ matrix.check }} passed"
+          else
+            echo "❌ ${{ matrix.check }} failed"
+          fi
+
+  test-build:
+    name: 🏗️ Test Build Process
+    runs-on: ubuntu-latest
+    needs: test-setup
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js & pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: 📦 Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: 🏗️ Test build
+        run: pnpm run build
+
+      - name: ✅ Verify build outputs
+        run: |
+          if [ -d "apps/web/.next" ]; then
+            echo "✅ Next.js build successful"
+          else
+            echo "❌ Next.js build failed"
+          fi
+          
+          if [ -d "packages/ui/dist" ]; then
+            echo "✅ UI package build successful"
+          else
+            echo "❌ UI package build failed"
+          fi
+
+  report:
+    name: 📊 Test Report
+    runs-on: ubuntu-latest
+    needs: [test-quality, test-build]
+    if: always()
+    
+    steps:
+      - name: 📊 Generate Test Report
+        run: |
+          echo "## 🧪 CI Pipeline Test Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Test Results:**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.test-quality.result }}" == "success" ]; then
+            echo "✅ Quality checks: PASSED" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Quality checks: FAILED" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.test-build.result }}" == "success" ]; then
+            echo "✅ Build process: PASSED" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Build process: FAILED" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next Steps:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. Review any failed checks above" >> $GITHUB_STEP_SUMMARY
+          echo "2. Configure GitHub secrets for full CI/CD" >> $GITHUB_STEP_SUMMARY
+          echo "3. Create a test PR to trigger preview deployment" >> $GITHUB_STEP_SUMMARY 

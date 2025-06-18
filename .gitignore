@@ -1,0 +1,45 @@
+# Environment variables - DO NOT commit to git
+.env
+.env.local
+.env.production
+.env.development
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+.turbo/
+
+# Runtime
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+
+# Pulumi
+.pulumi/
+Pulumi.*.yaml
+
+# Fly.io
+fly.toml
+
+# Temporary files
+*.tmp
+*.temp
+
+/generated/prisma

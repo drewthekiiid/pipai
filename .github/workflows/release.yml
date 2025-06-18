@@ -1,0 +1,111 @@
+name: 🚀 Release to Production
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '10.12.1'
+
+jobs:
+  release:
+    name: 🚀 Production Release
+    runs-on: ubuntu-latest
+    
+    environment:
+      name: production
+      url: ${{ steps.vercel.outputs.preview-url }}
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: 📦 Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: 🔍 Run tests
+        run: |
+          pnpm run lint
+          pnpm run type-check
+          pnpm run test
+
+      - name: 🏗️ Build project
+        run: pnpm run build
+
+      - name: 🏗️ Setup Pulumi
+        uses: pulumi/actions@v5
+
+      - name: 🔐 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: 🚀 Deploy Infrastructure
+        working-directory: ./infra
+        run: |
+          pulumi stack select production || pulumi stack init production
+          pulumi config set aws:region ${{ secrets.AWS_REGION || 'us-east-1' }}
+          pulumi up --yes --non-interactive
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          VERCEL_API_TOKEN: ${{ secrets.VERCEL_API_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+
+      - name: 🌐 Deploy to Vercel
+        id: vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_API_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./apps/web
+          scope: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-args: '--prod'
+
+      - name: 🏷️ Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: |
+            ## 🚀 Production Release ${{ github.ref_name }}
+            
+            **✅ Construction Analysis Demo deployed to production!**
+            
+            ### 🏗️ Features:
+            - AI-Powered PDF Analysis with GPT-4o
+            - Trade Detection for 9+ construction trades  
+            - 5-Agent Workflow processing pipeline
+            - Real-time streaming progress updates
+            - Professional report generation
+            
+            ### 🔗 Links:
+            - **Production URL**: ${{ steps.vercel.outputs.preview-url }}
+            - **Commit**: ${{ github.sha }}
+            
+            ### 📋 Test the demo:
+            1. Upload a construction PDF
+            2. Watch the AI agents analyze your document
+            3. Download generated estimates and reports
+          draft: false
+          prerelease: false 

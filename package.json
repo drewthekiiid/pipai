@@ -1,0 +1,32 @@
+{
+  "name": "pip-ai",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "type-check": "turbo type-check",
+    "clean": "turbo clean",
+    "api:dev": "turbo api:dev",
+    "api:build": "turbo api:build",
+    "api:test": "turbo api:test"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0"
+  },
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.9.0",
+    "aws-sdk": "^2.1692.0",
+    "dotenv": "^16.5.0",
+    "prisma": "^6.9.0"
+  }
+}

@@ -1,0 +1,257 @@
+/**
+ * PIP AI Design Tokens
+ * Generated from Figma Design System
+ * Single source of truth for design values
+ */
+
+:root {
+  /* Color Tokens */
+  
+  /* Primary Brand Colors */
+  --pip-primary-50: #f0f9ff;
+  --pip-primary-100: #e0f2fe;
+  --pip-primary-200: #bae6fd;
+  --pip-primary-300: #7dd3fc;
+  --pip-primary-400: #38bdf8;
+  --pip-primary-500: #0ea5e9;
+  --pip-primary-600: #0284c7;
+  --pip-primary-700: #0369a1;
+  --pip-primary-800: #075985;
+  --pip-primary-900: #0c4a6e;
+  --pip-primary-950: #082f49;
+
+  /* Neutral Colors */
+  --pip-neutral-0: #ffffff;
+  --pip-neutral-50: #f8fafc;
+  --pip-neutral-100: #f1f5f9;
+  --pip-neutral-200: #e2e8f0;
+  --pip-neutral-300: #cbd5e1;
+  --pip-neutral-400: #94a3b8;
+  --pip-neutral-500: #64748b;
+  --pip-neutral-600: #475569;
+  --pip-neutral-700: #334155;
+  --pip-neutral-800: #1e293b;
+  --pip-neutral-900: #0f172a;
+  --pip-neutral-950: #020617;
+
+  /* Semantic Colors */
+  --pip-success-50: #f0fdf4;
+  --pip-success-100: #dcfce7;
+  --pip-success-200: #bbf7d0;
+  --pip-success-300: #86efac;
+  --pip-success-400: #4ade80;
+  --pip-success-500: #22c55e;
+  --pip-success-600: #16a34a;
+  --pip-success-700: #15803d;
+  --pip-success-800: #166534;
+  --pip-success-900: #14532d;
+
+  --pip-warning-50: #fffbeb;
+  --pip-warning-100: #fef3c7;
+  --pip-warning-200: #fde68a;
+  --pip-warning-300: #fcd34d;
+  --pip-warning-400: #fbbf24;
+  --pip-warning-500: #f59e0b;
+  --pip-warning-600: #d97706;
+  --pip-warning-700: #b45309;
+  --pip-warning-800: #92400e;
+  --pip-warning-900: #78350f;
+
+  --pip-error-50: #fef2f2;
+  --pip-error-100: #fee2e2;
+  --pip-error-200: #fecaca;
+  --pip-error-300: #fca5a5;
+  --pip-error-400: #f87171;
+  --pip-error-500: #ef4444;
+  --pip-error-600: #dc2626;
+  --pip-error-700: #b91c1c;
+  --pip-error-800: #991b1b;
+  --pip-error-900: #7f1d1d;
+
+  --pip-info-50: #eff6ff;
+  --pip-info-100: #dbeafe;
+  --pip-info-200: #bfdbfe;
+  --pip-info-300: #93c5fd;
+  --pip-info-400: #60a5fa;
+  --pip-info-500: #3b82f6;
+  --pip-info-600: #2563eb;
+  --pip-info-700: #1d4ed8;
+  --pip-info-800: #1e40af;
+  --pip-info-900: #1e3a8a;
+
+  /* Typography Tokens */
+  
+  /* Font Families */
+  --pip-font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --pip-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+
+  /* Font Sizes */
+  --pip-text-xs: 0.75rem;     /* 12px */
+  --pip-text-sm: 0.875rem;    /* 14px */
+  --pip-text-base: 1rem;      /* 16px */
+  --pip-text-lg: 1.125rem;    /* 18px */
+  --pip-text-xl: 1.25rem;     /* 20px */
+  --pip-text-2xl: 1.5rem;     /* 24px */
+  --pip-text-3xl: 1.875rem;   /* 30px */
+  --pip-text-4xl: 2.25rem;    /* 36px */
+  --pip-text-5xl: 3rem;       /* 48px */
+  --pip-text-6xl: 3.75rem;    /* 60px */
+  --pip-text-7xl: 4.5rem;     /* 72px */
+
+  /* Line Heights */
+  --pip-leading-none: 1;
+  --pip-leading-tight: 1.25;
+  --pip-leading-snug: 1.375;
+  --pip-leading-normal: 1.5;
+  --pip-leading-relaxed: 1.625;
+  --pip-leading-loose: 2;
+
+  /* Font Weights */
+  --pip-font-thin: 100;
+  --pip-font-extralight: 200;
+  --pip-font-light: 300;
+  --pip-font-normal: 400;
+  --pip-font-medium: 500;
+  --pip-font-semibold: 600;
+  --pip-font-bold: 700;
+  --pip-font-extrabold: 800;
+  --pip-font-black: 900;
+
+  /* Spacing Tokens */
+  --pip-space-0: 0px;
+  --pip-space-px: 1px;
+  --pip-space-0_5: 0.125rem;  /* 2px */
+  --pip-space-1: 0.25rem;     /* 4px */
+  --pip-space-1_5: 0.375rem;  /* 6px */
+  --pip-space-2: 0.5rem;      /* 8px */
+  --pip-space-2_5: 0.625rem;  /* 10px */
+  --pip-space-3: 0.75rem;     /* 12px */
+  --pip-space-3_5: 0.875rem;  /* 14px */
+  --pip-space-4: 1rem;        /* 16px */
+  --pip-space-5: 1.25rem;     /* 20px */
+  --pip-space-6: 1.5rem;      /* 24px */
+  --pip-space-7: 1.75rem;     /* 28px */
+  --pip-space-8: 2rem;        /* 32px */
+  --pip-space-9: 2.25rem;     /* 36px */
+  --pip-space-10: 2.5rem;     /* 40px */
+  --pip-space-11: 2.75rem;    /* 44px */
+  --pip-space-12: 3rem;       /* 48px */
+  --pip-space-14: 3.5rem;     /* 56px */
+  --pip-space-16: 4rem;       /* 64px */
+  --pip-space-20: 5rem;       /* 80px */
+  --pip-space-24: 6rem;       /* 96px */
+  --pip-space-28: 7rem;       /* 112px */
+  --pip-space-32: 8rem;       /* 128px */
+  --pip-space-36: 9rem;       /* 144px */
+  --pip-space-40: 10rem;      /* 160px */
+  --pip-space-44: 11rem;      /* 176px */
+  --pip-space-48: 12rem;      /* 192px */
+  --pip-space-52: 13rem;      /* 208px */
+  --pip-space-56: 14rem;      /* 224px */
+  --pip-space-60: 15rem;      /* 240px */
+  --pip-space-64: 16rem;      /* 256px */
+  --pip-space-72: 18rem;      /* 288px */
+  --pip-space-80: 20rem;      /* 320px */
+  --pip-space-96: 24rem;      /* 384px */
+
+  /* Border Radius Tokens */
+  --pip-radius-none: 0px;
+  --pip-radius-xs: 0.125rem;   /* 2px */
+  --pip-radius-sm: 0.25rem;    /* 4px */
+  --pip-radius-md: 0.375rem;   /* 6px */
+  --pip-radius-lg: 0.5rem;     /* 8px */
+  --pip-radius-xl: 0.75rem;    /* 12px */
+  --pip-radius-2xl: 1rem;      /* 16px */
+  --pip-radius-3xl: 1.5rem;    /* 24px */
+  --pip-radius-full: 9999px;
+
+  /* Shadow Tokens */
+  --pip-shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --pip-shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --pip-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --pip-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --pip-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --pip-shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  --pip-shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
+
+  /* Z-index Tokens */
+  --pip-z-auto: auto;
+  --pip-z-0: 0;
+  --pip-z-10: 10;
+  --pip-z-20: 20;
+  --pip-z-30: 30;
+  --pip-z-40: 40;
+  --pip-z-50: 50;
+
+  /* Animation Tokens */
+  --pip-duration-75: 75ms;
+  --pip-duration-100: 100ms;
+  --pip-duration-150: 150ms;
+  --pip-duration-200: 200ms;
+  --pip-duration-300: 300ms;
+  --pip-duration-500: 500ms;
+  --pip-duration-700: 700ms;
+  --pip-duration-1000: 1000ms;
+
+  --pip-ease-linear: linear;
+  --pip-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --pip-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --pip-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --pip-ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Component-specific Tokens */
+  
+  /* Upload Dock */
+  --pip-upload-dock-width: 30rem;          /* 480px */
+  --pip-upload-dock-height: 20rem;         /* 320px */
+  --pip-upload-dock-width-mobile: 100%;
+  --pip-upload-dock-height-mobile: 15rem;  /* 240px */
+  --pip-upload-dock-border-width: 2px;
+  --pip-upload-dock-border-style: dashed;
+  
+  /* Progress Bar */
+  --pip-progress-height: 0.25rem;          /* 4px */
+  --pip-progress-bg: var(--pip-neutral-200);
+  --pip-progress-fill: var(--pip-primary-500);
+  
+  /* Icon Sizes */
+  --pip-icon-xs: 1rem;     /* 16px */
+  --pip-icon-sm: 1.25rem;  /* 20px */
+  --pip-icon-md: 1.5rem;   /* 24px */
+  --pip-icon-lg: 2rem;     /* 32px */
+  --pip-icon-xl: 3rem;     /* 48px */
+  --pip-icon-2xl: 4rem;    /* 64px */
+}
+
+/* Dark mode color overrides */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Override neutral colors for dark mode */
+    --pip-neutral-0: #0f172a;
+    --pip-neutral-50: #1e293b;
+    --pip-neutral-100: #334155;
+    --pip-neutral-200: #475569;
+    --pip-neutral-300: #64748b;
+    --pip-neutral-400: #94a3b8;
+    --pip-neutral-500: #cbd5e1;
+    --pip-neutral-600: #e2e8f0;
+    --pip-neutral-700: #f1f5f9;
+    --pip-neutral-800: #f8fafc;
+    --pip-neutral-900: #ffffff;
+    --pip-neutral-950: #ffffff;
+  }
+}
+
+/* Reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --pip-duration-75: 0ms;
+    --pip-duration-100: 0ms;
+    --pip-duration-150: 0ms;
+    --pip-duration-200: 0ms;
+    --pip-duration-300: 0ms;
+    --pip-duration-500: 0ms;
+    --pip-duration-700: 0ms;
+    --pip-duration-1000: 0ms;
+  }
+}

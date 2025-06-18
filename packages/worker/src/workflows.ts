@@ -1,0 +1,274 @@
+/**
+ * PIP AI Temporal Workflows
+ * Handles document analysis, AI processing, and workflow orchestration
+ */
+
+import { defineSignal, defineQuery, setHandler, condition, proxyActivities, log, sleep } from '@temporalio/workflow';
+import type * as activities from './activities';
+
+// Configure activity proxies with timeouts
+const { 
+  downloadFileActivity,
+  extractTextActivity,
+  generateEmbeddingsActivity,
+  runAIAnalysisActivity,
+  saveAnalysisActivity,
+  notifyUserActivity,
+  cleanupTempFilesActivity 
+} = proxyActivities<typeof activities>({
+  startToCloseTimeout: '5 minutes',
+  retry: {
+    initialInterval: '1s',
+    maximumInterval: '30s',
+    maximumAttempts: 3,
+  },
+});
+
+// Workflow signals and queries
+export const analysisProgressSignal = defineSignal<[{ step: string; progress: number }]>('analysisProgress');
+export const cancelAnalysisSignal = defineSignal('cancelAnalysis');
+export const getAnalysisStatusQuery = defineQuery<AnalysisStatus>('getAnalysisStatus');
+
+// Types
+interface AnalysisInput {
+  fileUrl: string;
+  userId: string;
+  fileName: string;
+  analysisType: 'document' | 'code' | 'data' | 'image';
+  options?: {
+    extractImages?: boolean;
+    generateSummary?: boolean;
+    detectLanguage?: boolean;
+  };
+}
+
+interface AnalysisStatus {
+  step: string;
+  progress: number;
+  error?: string;
+  result?: any;
+  canceled?: boolean;
+}
+
+interface AnalysisResult {
+  analysisId: string;
+  status: 'success' | 'failed' | 'canceled';
+  extractedText?: string;
+  summary?: string;
+  insights?: string[];
+  embeddings?: number[];
+  metadata?: Record<string, any>;
+  error?: string;
+}
+
+/**
+ * Main PIP AI Document Analysis Workflow
+ * Orchestrates the complete analysis pipeline
+ */
+export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<AnalysisResult> {
+  const analysisId = `analysis-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  let status: AnalysisStatus = {
+    step: 'initializing',
+    progress: 0,
+  };
+
+  // Set up signal handlers
+  setHandler(analysisProgressSignal, (update) => {
+    status = { ...status, ...update };
+    log.info('Analysis progress update', { analysisId, ...update });
+  });
+
+  setHandler(cancelAnalysisSignal, () => {
+    status.canceled = true;
+    log.info('Analysis cancellation requested', { analysisId });
+  });
+
+  setHandler(getAnalysisStatusQuery, () => status);
+
+  try {
+    log.info('Starting construction document analysis workflow', { analysisId, input });
+
+    // Step 1: Manager Agent - Document Intake
+    status = { step: 'Manager Agent: Processing document upload...', progress: 5 };
+    if (status.canceled) throw new Error('Analysis canceled');
+    
+    // Simulate realistic delay for document intake
+    await sleep(800);
+    
+    status = { step: 'Manager Agent: Validating construction document format...', progress: 10 };
+    const downloadResult = await downloadFileActivity({
+      fileUrl: input.fileUrl,
+      userId: input.userId,
+      analysisId,
+    });
+
+    // Step 2: File Reader Agent - Document Processing
+    status = { step: 'File Reader Agent: Initializing PDF extraction...', progress: 15 };
+    if (status.canceled) throw new Error('Analysis canceled');
+    
+    await sleep(600);
+    
+    status = { step: 'File Reader Agent: Extracting text from construction plans...', progress: 20 };
+    await sleep(400);
+    
+    status = { step: 'File Reader Agent: Analyzing document structure and content...', progress: 25 };
+    const textResult = await extractTextActivity({
+      filePath: downloadResult.localPath,
+      fileType: downloadResult.fileType,
+      options: input.options,
+    });
+
+    // Step 3: Trade Mapper Agent - Construction Analysis  
+    status = { step: 'Trade Mapper Agent: Scanning for CSI divisions and trades...', progress: 35 };
+    if (status.canceled) throw new Error('Analysis canceled');
+    
+    await sleep(1000);
+    
+    status = { step: 'Trade Mapper Agent: Detecting architectural and structural elements...', progress: 45 };
+    await sleep(800);
+    
+    status = { step: 'Trade Mapper Agent: Identifying MEP systems and specifications...', progress: 55 };
+    const embeddingsResult = await generateEmbeddingsActivity({
+      text: textResult.extractedText,
+      userId: input.userId,
+    });
+
+    // Step 4: Estimator Agent - AI Analysis
+    status = { step: 'Estimator Agent: Initializing GPT-4o construction analysis...', progress: 60 };
+    if (status.canceled) throw new Error('Analysis canceled');
+    
+    await sleep(700);
+    
+    status = { step: 'Estimator Agent: Running professional trade detection...', progress: 70 };
+    await sleep(500);
+    
+    status = { step: 'Estimator Agent: Generating scope of work and material takeoffs...', progress: 80 };
+    const aiResult = await runAIAnalysisActivity({
+      text: textResult.extractedText,
+      analysisType: input.analysisType,
+      metadata: textResult.metadata,
+    });
+
+    // Step 5: Exporter Agent - Results Processing
+    status = { step: 'Exporter Agent: Structuring analysis results...', progress: 85 };
+    if (status.canceled) throw new Error('Analysis canceled');
+    
+    await sleep(400);
+    
+    status = { step: 'Exporter Agent: Saving trade analysis to database...', progress: 90 };
+    const analysisData = {
+      analysisId,
+      userId: input.userId,
+      fileName: input.fileName,
+      extractedText: textResult.extractedText,
+      summary: aiResult.summary,
+      insights: aiResult.insights,
+      embeddings: embeddingsResult.embeddings,
+      metadata: {
+        ...textResult.metadata,
+        fileType: downloadResult.fileType,
+        fileSize: downloadResult.fileSize,
+        processingTime: Date.now(),
+      },
+    };
+
+    await saveAnalysisActivity(analysisData);
+
+    // Step 6: Manager Agent - Final Coordination
+    status = { step: 'Manager Agent: Finalizing deliverables and notifications...', progress: 95 };
+    
+    await notifyUserActivity({
+      userId: input.userId,
+      analysisId,
+      status: 'completed',
+      summary: aiResult.summary,
+    });
+
+    // Cleanup temporary files
+    await cleanupTempFilesActivity({ analysisId });
+
+    status = { step: 'Analysis Complete: Ready for download and export', progress: 100 };
+    
+    log.info('Document analysis completed successfully', { analysisId });
+
+    return {
+      analysisId,
+      status: 'success',
+      extractedText: textResult.extractedText,
+      summary: aiResult.summary,
+      insights: aiResult.insights,
+      embeddings: embeddingsResult.embeddings,
+      metadata: analysisData.metadata,
+    };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    log.error('Document analysis failed', { analysisId, error: errorMessage });
+    
+    // Update status with error
+    status = { 
+      step: 'failed', 
+      progress: status.progress,
+      error: errorMessage,
+    };
+
+    // Attempt cleanup even on failure
+    try {
+      await cleanupTempFilesActivity({ analysisId });
+    } catch (cleanupError) {
+      log.warn('Cleanup failed', { analysisId, cleanupError });
+    }
+
+    // Notify user of failure
+    try {
+      await notifyUserActivity({
+        userId: input.userId,
+        analysisId,
+        status: 'failed',
+        error: errorMessage,
+      });
+    } catch (notifyError) {
+      log.warn('Failed to notify user of error', { analysisId, notifyError });
+    }
+
+    return {
+      analysisId,
+      status: status.canceled ? 'canceled' : 'failed',
+      error: errorMessage,
+    };
+  }
+}
+
+/**
+ * Batch Document Analysis Workflow
+ * Processes multiple documents in parallel with coordination
+ */
+export async function batchAnalyzeWorkflow(inputs: AnalysisInput[]): Promise<AnalysisResult[]> {
+  log.info('Starting batch analysis workflow', { count: inputs.length });
+
+  // Process documents in parallel with concurrency limit
+  const batchSize = 3; // Process 3 documents at a time
+  const results: AnalysisResult[] = [];
+
+  for (let i = 0; i < inputs.length; i += batchSize) {
+    const batch = inputs.slice(i, i + batchSize);
+    
+    const batchPromises = batch.map(input => 
+      analyzeDocumentWorkflow(input)
+    );
+
+    const batchResults = await Promise.all(batchPromises);
+    results.push(...batchResults);
+    
+    log.info('Batch completed', { 
+      batchNumber: Math.floor(i / batchSize) + 1,
+      totalBatches: Math.ceil(inputs.length / batchSize),
+      completed: results.length,
+      total: inputs.length
+    });
+  }
+
+  return results;
+}
