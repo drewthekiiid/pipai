@@ -8,6 +8,23 @@
 
 echo "🏗️ Starting PIP AI Unified Development Environment..."
 
+# Function to cleanup on exit
+cleanup() {
+    echo ""
+    echo "🛑 Stopping development server..."
+    if [ ! -z "$NEXT_PID" ] && ps -p $NEXT_PID > /dev/null; then
+        kill $NEXT_PID 2>/dev/null || true
+        echo "   ✅ Next.js stopped"
+    fi
+    # Kill any remaining processes on port 3000
+    lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+    echo "🏁 Development environment stopped"
+    exit 0
+}
+
+# Setup cleanup trap
+trap cleanup SIGINT SIGTERM EXIT
+
 # Check if port 3000 is in use
 if lsof -Pi :3000 -sTCP:LISTEN -t >/dev/null ; then
     echo "🔍 Checking port 3000..."
@@ -40,9 +57,14 @@ NEXT_PID=$!
 # Wait for Next.js to start
 sleep 8
 
-# Check if Next.js is running
+# Check if Next.js is running and test endpoints
 if ps -p $NEXT_PID > /dev/null; then
-    echo "   ✅ Frontend running on http://localhost:3000"
+    # Test frontend
+    if curl -s -I http://localhost:3000 | grep -q "200 OK"; then
+        echo "   ✅ Frontend running on http://localhost:3000"
+    else
+        echo "   ⚠️  Frontend may still be starting..."
+    fi
     
     # Test the API endpoint
     if curl -s http://localhost:3000/api/upload > /dev/null; then
@@ -61,22 +83,15 @@ if ps -p $NEXT_PID > /dev/null; then
     echo "💡 Press Ctrl+C to stop the development server"
     echo "📝 Monitoring Next.js... (Ctrl+C to stop)"
     
-    # Monitor the Next.js process
-    while ps -p $NEXT_PID > /dev/null; do
+    # Keep the script running and monitor the Next.js process
+    while true; do
+        if ! ps -p $NEXT_PID > /dev/null; then
+            echo "❌ Next.js process died unexpectedly"
+            break
+        fi
         sleep 5
     done
-    
-    echo "❌ Next.js process died"
 else
     echo "❌ Failed to start Next.js"
     exit 1
-fi
-
-echo "🛑 Stopping development server..."
-# Clean up
-if ps -p $NEXT_PID > /dev/null; then
-    kill $NEXT_PID 2>/dev/null || true
-    echo "   ✅ Next.js stopped"
-fi
-
-echo "🏁 Development environment stopped" 
+fi 
