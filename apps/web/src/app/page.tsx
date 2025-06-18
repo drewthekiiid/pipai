@@ -147,7 +147,7 @@ export default function FuturisticChat() {
   }
 
   // Real backend workflow integration
-  const startRealWorkflow = async (files: StagedFile[], userPrompt: string) => {
+  const startRealWorkflow = async (files: StagedFile[]) => {
     setIsProcessing(true)
     
     try {
@@ -270,10 +270,10 @@ export default function FuturisticChat() {
               agent: "Manager",
               agentId: "manager",
               status: "complete",
-              deliverables: data.results?.map((result: any) => ({
-                name: result.filename,
-                type: result.type,
-                downloadUrl: result.downloadUrl,
+              deliverables: data.results?.map((result: Record<string, unknown>) => ({
+                name: String(result.filename),
+                type: String(result.type),
+                downloadUrl: String(result.downloadUrl),
               })) || [
                 { name: "Analysis_Report.pdf", type: "pdf" },
                 { name: "Cost_Estimates.xlsx", type: "xlsx" },
@@ -341,7 +341,7 @@ export default function FuturisticChat() {
 
     // Start real workflow if files are staged
     if (stagedFiles.length > 0) {
-      await startRealWorkflow(stagedFiles, input)
+      await startRealWorkflow(stagedFiles)
       setStagedFiles([]) // Clear staged files after submission
     }
 
@@ -351,7 +351,7 @@ export default function FuturisticChat() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
-      handleSubmit(e as any)
+      handleSubmit(e as unknown as React.FormEvent)
     }
   }
 
@@ -439,7 +439,7 @@ export default function FuturisticChat() {
               </div>
             </div>
 
-            <h1 className="text-4xl font-light text-slate-900 dark:text-slate-100 mb-4 tracking-tight">Let's Build!</h1>
+            <h1 className="text-4xl font-light text-slate-900 dark:text-slate-100 mb-4 tracking-tight">Let&apos;s Build!</h1>
 
             <p className="text-slate-600 dark:text-slate-400 mb-8 text-lg font-light">
               Start a new conversation, upload files, or paste content URLs.

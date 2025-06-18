@@ -13,7 +13,7 @@ interface AnalysisResult {
   summary?: string;
   insights?: string[];
   embeddings?: number[];
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   error?: string;
 }
 

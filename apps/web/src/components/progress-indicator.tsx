@@ -173,7 +173,7 @@ export function ProgressIndicator({
           
           {/* Agent Status Grid */}
           <div className="space-y-3">
-            {CONSTRUCTION_AGENTS.map((agent, index) => {
+            {CONSTRUCTION_AGENTS.map((agent) => {
               const isActive = activeAgent === agent.key;
               const agentProgress = currentAnalysis?.progress || 0;
               
