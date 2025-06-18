@@ -1,0 +1,19 @@
+# PIP AI Temporal Worker - Fly.io Configuration
+
+app = 'pip-ai-worker'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  NODE_ENV = 'production'
+  LOG_LEVEL = 'info'
+
+# No services block needed for background worker
+# This is a background service that doesn't serve HTTP traffic
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1

@@ -118,14 +118,16 @@ RUN ARCH=$(dpkg --print-architecture) && \
     dpkg -i gh.deb && \
     rm gh.deb
 
-# Install latest AWS CLI v2 - Fixed for ARM64 compatibility
-RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+# Install latest AWS CLI v2 - Simplified and more reliable
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then \
+        AWS_ARCH="x86_64"; \
     else \
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
+        AWS_ARCH="aarch64"; \
     fi && \
-    unzip awscliv2.zip && \
-    ./aws/install && \
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o "awscliv2.zip" && \
+    unzip -q awscliv2.zip && \
+    ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli && \
     rm -rf awscliv2.zip aws/
 
 # Install latest Pulumi

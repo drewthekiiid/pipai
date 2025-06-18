@@ -1,0 +1,52 @@
+import { Client } from '@temporalio/client';
+import { NativeConnection } from '@temporalio/worker';
+async function testConnection() {
+    console.log('🧪 Testing Temporal Cloud connection...');
+    const address = process.env.TEMPORAL_ADDRESS || 'us-east-1.aws.api.temporal.io:7233';
+    const namespace = process.env.TEMPORAL_NAMESPACE || 'pip-ai.ts7wf';
+    const apiKey = process.env.TEMPORAL_API_KEY;
+    console.log('   Address:', address);
+    console.log('   Namespace:', namespace);
+    console.log('   API Key length:', apiKey?.length || 'NOT SET');
+    try {
+        // Test basic connection
+        console.log('\n1️⃣ Testing NativeConnection...');
+        const connection = await NativeConnection.connect({
+            address,
+            tls: {
+                clientCertPair: {
+                    crt: Buffer.from(''),
+                    key: Buffer.from(''),
+                },
+            },
+            metadata: {
+                authorization: `Bearer ${apiKey}`,
+            },
+        });
+        console.log('✅ NativeConnection successful');
+        // Test client connection
+        console.log('\n2️⃣ Testing Client connection...');
+        const client = new Client({
+            connection: connection,
+            namespace,
+        });
+        // Try to list workflows (read operation)
+        console.log('\n3️⃣ Testing workflow listing...');
+        const workflowsIter = client.workflow.list();
+        let count = 0;
+        for await (const workflow of workflowsIter) {
+            count++;
+            if (count >= 1)
+                break; // Just test if we can read one
+        }
+        console.log(`✅ Successfully listed workflows (found ${count})`);
+        await connection.close();
+        console.log('\n🎉 All tests passed! Connection is working.');
+    }
+    catch (error) {
+        console.error('\n❌ Connection test failed:', error);
+        process.exit(1);
+    }
+}
+testConnection();
+//# sourceMappingURL=test-connection.js.map
