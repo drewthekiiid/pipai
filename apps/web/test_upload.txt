@@ -1,0 +1,9 @@
+This is a test document for PIP AI analysis.
+It contains some sample text that can be processed by the workflow.
+The system should extract this text, analyze it, and generate insights.
+
+Key features to test:
+- Text extraction
+- AI analysis
+- Workflow orchestration
+- File storage integration

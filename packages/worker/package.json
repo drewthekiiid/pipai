@@ -12,17 +12,18 @@
   },
   "dependencies": {
     "@temporalio/activity": "^1.11.8",
-    "@temporalio/client": "^1.11.8", 
+    "@temporalio/client": "^1.11.8",
     "@temporalio/worker": "^1.11.8",
     "@temporalio/workflow": "^1.11.8",
-    "openai": "^4.68.0",
-    "pdf-parse": "^1.1.1",
     "axios": "^1.7.5",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "openai": "^4.68.0",
+    "pdf-parse": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/pdf-parse": "^1.1.1",
+    "globals": "^16.2.0",
     "tsx": "^4.20.0",
     "typescript": "^5.5.2"
   },

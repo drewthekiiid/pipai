@@ -15,7 +15,6 @@ export default [
       },
       globals: {
         ...globals.node,
-        ...globals.browser,
       },
     },
     plugins: {
