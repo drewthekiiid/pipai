@@ -1,6 +1,6 @@
 /**
- * PIP AI Temporal Worker
- * Production-ready worker with error handling, metrics, and graceful shutdown
+ * PIP AI Temporal Worker - Minimal Configuration for Temporal Cloud
+ * Simplified to avoid "Unimplemented" errors
  */
 import 'dotenv/config';
 //# sourceMappingURL=worker.d.ts.map
