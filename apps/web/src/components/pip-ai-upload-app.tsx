@@ -108,11 +108,16 @@ export function PipAIUploadApp() {
 
     switch (lastEvent.type) {
       case 'completed':
-        setResult(lastEvent.data.result);
+        if (lastEvent.data.result) {
+          setResult(lastEvent.data.result as AnalysisResult);
+        }
         setUploadState('completed');
         break;
       case 'failed':
-        setError(lastEvent.data.error || 'Workflow failed');
+        const errorMessage = typeof lastEvent.data.error === 'string' 
+          ? lastEvent.data.error 
+          : 'Workflow failed';
+        setError(errorMessage);
         setUploadState('error');
         break;
     }

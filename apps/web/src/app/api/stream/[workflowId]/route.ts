@@ -63,9 +63,9 @@ function extractAgentFromStep(step: string): string {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { workflowId: string } }
+  { params }: { params: Promise<{ workflowId: string }> }
 ) {
-  const { workflowId } = params;
+  const { workflowId } = await params;
 
   if (!workflowId) {
     return NextResponse.json({ error: 'Workflow ID is required' }, { status: 400 });

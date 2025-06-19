@@ -67,9 +67,9 @@ export function ProgressIndicator({
     
     const latest = progressEvents[progressEvents.length - 1];
     return {
-      step: latest.data.step || '',
-      progress: latest.data.progress || 0,
-      agent: latest.data.agent || 'System'
+      step: typeof latest.data.step === 'string' ? latest.data.step : '',
+      progress: typeof latest.data.progress === 'number' ? latest.data.progress : 0,
+      agent: typeof latest.data.agent === 'string' ? latest.data.agent : 'System'
     };
   }, [events]);
 
@@ -79,7 +79,7 @@ export function ProgressIndicator({
     if (statusEvents.length === 0) return null;
     
     const latest = statusEvents[statusEvents.length - 1];
-    return latest.data.status;
+    return typeof latest.data.status === 'string' ? latest.data.status : null;
   }, [events]);
 
   // Calculate overall progress
@@ -94,7 +94,7 @@ export function ProgressIndicator({
 
   // Determine which agent is currently active
   const activeAgent = React.useMemo(() => {
-    if (!currentAnalysis) return null;
+    if (!currentAnalysis || !currentAnalysis.agent) return null;
     
     const agentMap: { [key: string]: string } = {
       'Manager': 'manager',
@@ -175,7 +175,7 @@ export function ProgressIndicator({
           <div className="space-y-3">
             {CONSTRUCTION_AGENTS.map((agent) => {
               const isActive = activeAgent === agent.key;
-              const agentProgress = currentAnalysis?.progress || 0;
+              const agentProgress = currentAnalysis?.progress ?? 0;
               
               // Determine if agent is completed based on progress ranges
               const progressRanges = {
@@ -267,7 +267,7 @@ export function ProgressIndicator({
                         {new Date(event.timestamp || '').toLocaleTimeString()}
                       </span>
                     </div>
-                    {event.data.message && (
+                    {typeof event.data.message === 'string' && event.data.message && (
                       <div className="text-slate-600 mt-1">{event.data.message}</div>
                     )}
                   </div>
