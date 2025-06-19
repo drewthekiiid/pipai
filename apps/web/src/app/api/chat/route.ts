@@ -10,9 +10,6 @@ export const runtime = 'nodejs';
 export const maxDuration = 300; // Allow up to 5 minutes for large document analysis
 export const dynamic = 'force-dynamic';
 
-// Increase the maximum request size for construction documents
-export const maxRequestSize = '100mb';
-
 // Initialize OpenAI client lazily for Vercel compatibility
 let openai: OpenAI | null = null;
 
