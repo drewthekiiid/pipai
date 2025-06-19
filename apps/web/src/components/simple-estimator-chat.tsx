@@ -343,9 +343,13 @@ export default function SimpleEstimatorChat() {
     const maxFileSize = 100 * 1024 * 1024; // 100MB limit per file for large construction documents
     const validFiles: StagedFile[] = [];
     const rejectedFiles: string[] = [];
+    const invalidTypeFiles: string[] = [];
 
     files.forEach((file) => {
-      if (file.size > maxFileSize) {
+      // Check if file is an image
+      if (!file.type.startsWith('image/')) {
+        invalidTypeFiles.push(`${file.name} (${file.type || 'unknown type'})`);
+      } else if (file.size > maxFileSize) {
         rejectedFiles.push(`${file.name} (${formatFileSize(file.size)})`);
       } else {
         validFiles.push({
@@ -358,8 +362,19 @@ export default function SimpleEstimatorChat() {
       }
     });
 
+    // Handle invalid file types
+    if (invalidTypeFiles.length > 0) {
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        type: "system",
+        content: `❌ Only image files are supported. Please convert these to JPG/PNG:\n${invalidTypeFiles.join('\n')}\n\n💡 Tip: For PDFs, take screenshots or convert pages to images.`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    }
+
+    // Handle oversized files
     if (rejectedFiles.length > 0) {
-      // Add error message for rejected files
       const errorMessage: Message = {
         id: Date.now().toString(),
         type: "system",
@@ -426,6 +441,7 @@ export default function SimpleEstimatorChat() {
     
     console.log('🔑 Using OpenAI API key:', openaiApiKey.substring(0, 7) + '...')
     console.log('📁 Processing', filesData.length, 'files for analysis')
+    console.log('📂 File types:', filesData.map(f => `${f.name}: ${f.type}`).join(', '))
 
     // Add progress indicator
     const progressMessage: Message = {
@@ -657,16 +673,16 @@ export default function SimpleEstimatorChat() {
             </h1>
 
             <p className="text-slate-600 dark:text-slate-400 mb-8 text-lg font-light">
-              Upload your construction documents and I'll analyze them to detect trades, generate scope of work, and create takeoffs in CSI order.
+              Upload construction plan <strong>images</strong> (JPG/PNG) and I'll analyze them to detect trades, generate scope of work, and create takeoffs in CSI order.
             </p>
 
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white border-0 px-8 py-3 text-base font-medium shadow-lg shadow-red-500/25 hover:shadow-xl hover:shadow-red-500/30 transition-all duration-300"
-            >
-              <Upload className="w-5 h-5 mr-2" />
-              Upload Plans
-            </Button>
+                          <Button
+                onClick={() => fileInputRef.current?.click()}
+                className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white border-0 px-8 py-3 text-base font-medium shadow-lg shadow-red-500/25 hover:shadow-xl hover:shadow-red-500/30 transition-all duration-300"
+              >
+                <Upload className="w-5 h-5 mr-2" />
+                Upload Plan Images
+              </Button>
           </div>
         ) : (
           // Messages
@@ -773,7 +789,7 @@ export default function SimpleEstimatorChat() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={stagedFiles.length > 0 ? "Add instructions for analysis..." : "Ask about construction estimating or upload documents..."}
+                placeholder={stagedFiles.length > 0 ? "Add instructions for analysis..." : "Ask about construction estimating or upload plan images..."}
                 className="resize-none border-slate-300 dark:border-slate-600 focus:border-red-500 focus:ring-red-500/20"
                 rows={1}
                 disabled={isProcessing}
@@ -811,7 +827,7 @@ export default function SimpleEstimatorChat() {
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*,.pdf"
+            accept="image/*"
             onChange={(e) => e.target.files && stageFiles(Array.from(e.target.files))}
             className="hidden"
           />
