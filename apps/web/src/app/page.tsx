@@ -339,8 +339,52 @@ export default function FuturisticChat() {
 
     setMessages((prev) => [...prev, userMessage])
 
+    // Handle text-only chat messages
+    if (stagedFiles.length === 0 && input.trim()) {
+      setIsProcessing(true)
+      
+      try {
+        const chatResponse = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: input.trim(),
+            userId: 'demo-user', // In a real app, this would come from auth
+          }),
+        })
+
+        if (!chatResponse.ok) {
+          throw new Error(`Chat API error: ${chatResponse.statusText}`)
+        }
+
+        const chatResult = await chatResponse.json()
+        
+        const assistantMessage: Message = {
+          id: chatResult.id || `assistant-${Date.now()}`,
+          type: "assistant",
+          content: chatResult.message,
+          timestamp: new Date(chatResult.timestamp || Date.now()),
+        }
+
+        setMessages((prev) => [...prev, assistantMessage])
+      } catch (error) {
+        console.error('Chat failed:', error)
+        const errorMessage: Message = {
+          id: `error-${Date.now()}`,
+          type: "system",
+          content: `Failed to get response: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          timestamp: new Date(),
+          status: "error",
+        }
+        setMessages((prev) => [...prev, errorMessage])
+      } finally {
+        setIsProcessing(false)
+      }
+    }
     // Start real workflow if files are staged
-    if (stagedFiles.length > 0) {
+    else if (stagedFiles.length > 0) {
       await startRealWorkflow(stagedFiles)
       setStagedFiles([]) // Clear staged files after submission
     }
