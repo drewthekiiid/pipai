@@ -378,8 +378,48 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Handle OpenAI API errors specifically
+    if (error && typeof error === 'object' && 'status' in error) {
+      const apiError = error as any;
+      if (apiError.status === 401) {
+        return NextResponse.json(
+          { 
+            error: 'Invalid OpenAI API key. Please check your API key configuration.',
+            hint: 'Update OPENAI_API_KEY in your .env.local file with a valid key from https://platform.openai.com/api-keys',
+            status: 401
+          },
+          { status: 401 }
+        );
+      }
+      
+      if (apiError.status === 429) {
+        return NextResponse.json(
+          { 
+            error: 'OpenAI API rate limit exceeded. Please try again later.',
+            status: 429
+          },
+          { status: 429 }
+        );
+      }
+    }
+
+    // Handle general OpenAI errors
+    if (error instanceof Error && (error.message.includes('401') || error.message.includes('Incorrect API key'))) {
+      return NextResponse.json(
+        { 
+          error: 'Invalid OpenAI API key. Please check your API key configuration.',
+          hint: 'Update OPENAI_API_KEY in your .env.local file with a valid key from https://platform.openai.com/api-keys',
+          details: error.message
+        },
+        { status: 401 }
+      );
+    }
+
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { 
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     );
   }
@@ -414,7 +454,7 @@ async function analyzeConstructionDocuments(client: OpenAI, files: Array<{name: 
     ];
 
     const response = await client.chat.completions.create({
-      model: "gpt-4.1",
+      model: "gpt-4o",
       messages,
       max_tokens: 4000,
       temperature: 0.1, // Low temperature for consistency in construction analysis
