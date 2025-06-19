@@ -35,6 +35,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Pulumi SDK dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ./infra
+
       - name: Build shared packages
         run: |
           cd packages/shared && pnpm run build
