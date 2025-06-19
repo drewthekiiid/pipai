@@ -3,8 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Download, FileText, Paperclip, Send, Upload, X } from "lucide-react"
-import type React from "react"
-import { useRef, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 
 // EstimAItor system prompt for construction analysis
 const ESTIMATOR_PROMPT = `NAME
@@ -308,6 +307,14 @@ export default function SimpleEstimatorChat() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [dragActive, setDragActive] = useState(false)
 
+  // Debug environment variables
+  useEffect(() => {
+    console.log('🔍 Environment Check:')
+    console.log('  - NODE_ENV:', process.env.NODE_ENV)
+    console.log('  - NEXT_PUBLIC_OPENAI_API_KEY:', process.env.NEXT_PUBLIC_OPENAI_API_KEY ? process.env.NEXT_PUBLIC_OPENAI_API_KEY.substring(0, 10) + '...' : 'NOT FOUND')
+    console.log('  - All NEXT_PUBLIC vars:', Object.keys(process.env).filter(key => key.startsWith('NEXT_PUBLIC')))
+  }, [])
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -411,11 +418,23 @@ export default function SimpleEstimatorChat() {
     )
 
     // Call OpenAI API directly from client - bypasses Vercel serverless limits
-    const openaiApiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY || prompt('Enter your OpenAI API key:')
+    const openaiApiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY
     
     if (!openaiApiKey) {
-      throw new Error('OpenAI API key required. Please set NEXT_PUBLIC_OPENAI_API_KEY environment variable.')
+      throw new Error('❌ OpenAI API key not configured. Please add NEXT_PUBLIC_OPENAI_API_KEY to your .env.local file and restart the server.')
     }
+    
+    console.log('🔑 Using OpenAI API key:', openaiApiKey.substring(0, 7) + '...')
+    console.log('📁 Processing', filesData.length, 'files for analysis')
+
+    // Add progress indicator
+    const progressMessage: Message = {
+      id: `api-call-${Date.now()}`,
+      type: "system",
+      content: `🤖 Calling OpenAI API with ${filesData.length} file(s)...`,
+      timestamp: new Date(),
+    }
+    setMessages((prev) => [...prev, progressMessage])
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -452,12 +471,22 @@ export default function SimpleEstimatorChat() {
       }),
     })
 
+    console.log('📡 OpenAI API response status:', response.status)
+
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      throw new Error(errorData.error?.message || `OpenAI API error: ${response.status}`)
+      const errorText = await response.text()
+      console.error('❌ OpenAI API error response:', errorText)
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        errorData = { error: { message: errorText } }
+      }
+      throw new Error(errorData.error?.message || `OpenAI API error: ${response.status} - ${errorText}`)
     }
 
     const result = await response.json()
+    console.log('✅ OpenAI API call successful, response length:', result.choices[0].message.content.length)
     
     return {
       id: `analysis-${Date.now()}`,
