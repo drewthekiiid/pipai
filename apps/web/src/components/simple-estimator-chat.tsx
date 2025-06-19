@@ -346,8 +346,12 @@ export default function SimpleEstimatorChat() {
     const invalidTypeFiles: string[] = [];
 
     files.forEach((file) => {
-      // Check if file is an image
-      if (!file.type.startsWith('image/')) {
+      // Check if file is an image or PDF
+      const isValidType = file.type.startsWith('image/') || 
+                         file.type === 'application/pdf' || 
+                         file.name.toLowerCase().endsWith('.pdf');
+      
+      if (!isValidType) {
         invalidTypeFiles.push(`${file.name} (${file.type || 'unknown type'})`);
       } else if (file.size > maxFileSize) {
         rejectedFiles.push(`${file.name} (${formatFileSize(file.size)})`);
@@ -367,7 +371,7 @@ export default function SimpleEstimatorChat() {
       const errorMessage: Message = {
         id: Date.now().toString(),
         type: "system",
-        content: `❌ Only image files are supported. Please convert these to JPG/PNG:\n${invalidTypeFiles.join('\n')}\n\n💡 Tip: For PDFs, take screenshots or convert pages to images.`,
+        content: `❌ Only image files (JPG, PNG, etc.) and PDF documents are supported. These files were rejected:\n${invalidTypeFiles.join('\n')}\n\n💡 Tip: Upload construction drawings as images or PDF files.`,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -789,7 +793,7 @@ export default function SimpleEstimatorChat() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={stagedFiles.length > 0 ? "Add instructions for analysis..." : "Ask about construction estimating or upload plan images..."}
+                placeholder={stagedFiles.length > 0 ? "Add instructions for analysis..." : "Ask about construction estimating or upload plan images/PDFs..."}
                 className="resize-none border-slate-300 dark:border-slate-600 focus:border-red-500 focus:ring-red-500/20"
                 rows={1}
                 disabled={isProcessing}
@@ -827,7 +831,7 @@ export default function SimpleEstimatorChat() {
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*"
+            accept="image/*,application/pdf,.pdf"
             onChange={(e) => e.target.files && stageFiles(Array.from(e.target.files))}
             className="hidden"
           />

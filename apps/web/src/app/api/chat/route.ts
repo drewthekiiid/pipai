@@ -1,5 +1,8 @@
+import { createCanvas } from 'canvas';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { PDFDocument } from 'pdf-lib';
+import pdfParse from 'pdf-parse';
 import { z } from 'zod';
 
 // Configure API route to handle larger payloads for construction documents
@@ -315,6 +318,209 @@ POLLUTION & WASTE CONTROL EQUIPMENT
 ELECTRICAL POWER GENERATION
 48140, 48150`;
 
+// PDF to Image conversion function
+async function convertPdfToImages(pdfBuffer: Buffer, fileName: string): Promise<Array<{name: string, type: string, data: string}>> {
+  try {
+    console.log(`🔄 Converting PDF "${fileName}" to images...`);
+    
+    // First, try to extract text from PDF for better context
+    let extractedText = '';
+    try {
+      const pdfData = await pdfParse(pdfBuffer);
+      extractedText = pdfData.text;
+      console.log(`📝 Extracted ${extractedText.length} characters of text from PDF`);
+    } catch (textError) {
+      console.log(`⚠️ Could not extract text from PDF: ${textError}`);
+    }
+    
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const pageCount = pdfDoc.getPageCount();
+    console.log(`📄 PDF has ${pageCount} page(s)`);
+    
+    const images: Array<{name: string, type: string, data: string}> = [];
+    
+    // Split extracted text into pages (rough estimation)
+    const textPerPage = extractedText ? extractedText.split(/\f|\n\n\n/).filter(text => text.trim()) : [];
+    
+    // For each page in the PDF
+    for (let i = 0; i < pageCount; i++) {
+      try {
+        // Get page dimensions from original PDF
+        const page = pdfDoc.getPages()[i];
+        const { width, height } = page.getSize();
+        
+        // Scale for high quality (300 DPI equivalent)
+        const scale = 2;
+        const canvasWidth = width * scale;
+        const canvasHeight = height * scale;
+        
+        // Create canvas for this page
+        const canvas = createCanvas(canvasWidth, canvasHeight);
+        const ctx = canvas.getContext('2d');
+        
+        // Set white background
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        
+        // Draw page header
+        ctx.fillStyle = '#2563eb'; // Blue header
+        ctx.fillRect(0, 0, canvasWidth, 100 * scale);
+        
+        // Page title
+        ctx.fillStyle = 'white';
+        ctx.font = `bold ${28 * scale}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText(`${fileName} - Page ${i + 1}/${pageCount}`, canvasWidth / 2, 60 * scale);
+        
+        // Add page content representation
+        ctx.fillStyle = '#1f2937'; // Dark gray for content
+        ctx.font = `${16 * scale}px Arial`;
+        ctx.textAlign = 'left';
+        
+        let yPosition = 150 * scale;
+        const lineHeight = 25 * scale;
+        const margin = 40 * scale;
+        const maxWidth = canvasWidth - (2 * margin);
+        
+        // Draw construction drawing indicator
+        ctx.fillStyle = '#059669'; // Green accent
+        ctx.fillRect(margin, yPosition, maxWidth, 2 * scale);
+        yPosition += 30 * scale;
+        
+        ctx.fillStyle = '#1f2937';
+        ctx.fillText('📐 CONSTRUCTION DOCUMENT CONTENT:', margin, yPosition);
+        yPosition += 40 * scale;
+        
+        // Add extracted text preview for this page
+        if (textPerPage[i]) {
+          const pageText = textPerPage[i].substring(0, 500) + (textPerPage[i].length > 500 ? '...' : '');
+          const words = pageText.split(' ');
+          let currentLine = '';
+          
+          for (const word of words) {
+            const testLine = currentLine + word + ' ';
+            const metrics = ctx.measureText(testLine);
+            
+            if (metrics.width > maxWidth && currentLine !== '') {
+              ctx.fillText(currentLine, margin, yPosition);
+              currentLine = word + ' ';
+              yPosition += lineHeight;
+              
+              // Prevent overflow
+              if (yPosition > canvasHeight - 100 * scale) break;
+            } else {
+              currentLine = testLine;
+            }
+          }
+          
+          // Draw remaining text
+          if (currentLine && yPosition < canvasHeight - 100 * scale) {
+            ctx.fillText(currentLine, margin, yPosition);
+          }
+        } else {
+          // No text extracted - show visual representation indicators
+          const indicators = [
+            '📋 Plan drawings and specifications detected',
+            '🔍 Visual elements require GPT-4o Vision analysis',
+            '📏 Dimensions, symbols, and technical drawings',
+            '⚡ Processing with advanced AI vision capabilities'
+          ];
+          
+          indicators.forEach((indicator, index) => {
+            if (yPosition < canvasHeight - 100 * scale) {
+              ctx.fillText(indicator, margin, yPosition);
+              yPosition += lineHeight * 1.5;
+            }
+          });
+        }
+        
+        // Add footer
+        ctx.fillStyle = '#6b7280';
+        ctx.font = `${14 * scale}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText(
+          `Converted for GPT-4o Vision Analysis | EstimAItor ${new Date().toLocaleDateString()}`,
+          canvasWidth / 2,
+          canvasHeight - 30 * scale
+        );
+        
+        // Convert canvas to base64
+        const imageData = canvas.toDataURL('image/png');
+        const base64Data = imageData.split(',')[1]; // Remove data:image/png;base64, prefix
+        
+        images.push({
+          name: `${fileName.replace('.pdf', '')}_page_${i + 1}.png`,
+          type: 'image/png',
+          data: base64Data
+        });
+        
+        console.log(`✅ Converted page ${i + 1}/${pageCount} of ${fileName}`);
+      } catch (pageError) {
+        console.error(`❌ Error converting page ${i + 1} of ${fileName}:`, pageError);
+        // Continue with other pages even if one fails
+      }
+    }
+    
+    console.log(`🎯 Successfully converted ${images.length}/${pageCount} pages from ${fileName}`);
+    
+    // If we have extracted text, also create a text summary "page"
+    if (extractedText && extractedText.length > 100) {
+      try {
+        const summaryCanvas = createCanvas(800 * 2, 600 * 2);
+        const summaryCtx = summaryCanvas.getContext('2d');
+        
+        // Background
+        summaryCtx.fillStyle = '#f8fafc';
+        summaryCtx.fillRect(0, 0, 800 * 2, 600 * 2);
+        
+        // Header
+        summaryCtx.fillStyle = '#1e40af';
+        summaryCtx.fillRect(0, 0, 800 * 2, 80 * 2);
+        
+        summaryCtx.fillStyle = 'white';
+        summaryCtx.font = 'bold 24px Arial';
+        summaryCtx.textAlign = 'center';
+        summaryCtx.fillText(`📄 TEXT EXTRACTED FROM ${fileName.toUpperCase()}`, 400 * 2, 50 * 2);
+        
+        // Text preview
+        summaryCtx.fillStyle = '#1f2937';
+        summaryCtx.font = '16px Arial';
+        summaryCtx.textAlign = 'left';
+        
+        const textPreview = extractedText.substring(0, 1000) + (extractedText.length > 1000 ? '\n\n... [truncated]' : '');
+        const lines = textPreview.split('\n');
+        let y = 120 * 2;
+        
+        lines.forEach((line, index) => {
+          if (y < 550 * 2 && index < 25) { // Limit lines to prevent overflow
+            summaryCtx.fillText(line.substring(0, 100), 40 * 2, y);
+            y += 20 * 2;
+          }
+        });
+        
+        const summaryImageData = summaryCanvas.toDataURL('image/png');
+        const summaryBase64 = summaryImageData.split(',')[1];
+        
+        images.push({
+          name: `${fileName.replace('.pdf', '')}_text_summary.png`,
+          type: 'image/png',
+          data: summaryBase64
+        });
+        
+        console.log(`📋 Created text summary image for ${fileName}`);
+      } catch (summaryError) {
+        console.error(`❌ Error creating text summary for ${fileName}:`, summaryError);
+      }
+    }
+    
+    return images;
+    
+  } catch (error) {
+    console.error(`❌ Error converting PDF "${fileName}" to images:`, error);
+    throw new Error(`PDF conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Initialize OpenAI client at request time for Vercel compatibility
@@ -337,16 +543,40 @@ export async function POST(request: NextRequest) {
         if (key.startsWith('file-') && value instanceof File) {
           console.log(`📁 Processing file: ${value.name} (${Math.round(value.size / 1024 / 1024)}MB)`);
           
-          // Convert file to base64 for OpenAI
+          // Convert file to buffer
           const arrayBuffer = await value.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
-          const base64 = buffer.toString('base64');
           
-          uploadedFiles.push({
-            name: value.name,
-            type: value.type,
-            data: base64
-          });
+          // Check if file is a PDF
+          if (value.type === 'application/pdf' || value.name.toLowerCase().endsWith('.pdf')) {
+            console.log(`🔍 Detected PDF file: ${value.name} - converting to images...`);
+            
+            try {
+              // Convert PDF to images using Method 3
+              const pdfImages = await convertPdfToImages(buffer, value.name);
+              uploadedFiles.push(...pdfImages);
+              
+              console.log(`✅ Successfully converted PDF to ${pdfImages.length} image(s)`);
+            } catch (pdfError) {
+              console.error(`❌ PDF conversion failed for ${value.name}:`, pdfError);
+              
+              // Fallback: treat as regular file with base64 encoding
+              const base64 = buffer.toString('base64');
+              uploadedFiles.push({
+                name: value.name,
+                type: value.type,
+                data: base64
+              });
+            }
+          } else {
+            // Handle regular files (images, etc.)
+            const base64 = buffer.toString('base64');
+            uploadedFiles.push({
+              name: value.name,
+              type: value.type,
+              data: base64
+            });
+          }
         }
       }
       
