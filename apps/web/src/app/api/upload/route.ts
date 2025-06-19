@@ -4,10 +4,10 @@
  * Handles file uploads to S3 and triggers Temporal workflows for analysis
  */
 
-import { HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { Connection, Client as TemporalClient } from '@temporalio/client';
-import { Redis } from '@upstash/redis';
 import { NextRequest, NextResponse } from 'next/server';
+import { Client as TemporalClient, Connection } from '@temporalio/client';
+import { Redis } from '@upstash/redis';
+import { S3Client, PutObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
 import { v4 as uuidv4 } from 'uuid';
 
 // Environment configuration with validation

@@ -7,8 +7,8 @@ on:
     branches: [main, develop]
 
 env:
-  NODE_VERSION: '20'
-  PNPM_VERSION: '10.12.1'
+  NODE_VERSION: "20"
+  PNPM_VERSION: "10.12.1"
 
 jobs:
   # Matrix build for code quality checks
@@ -18,7 +18,7 @@ jobs:
     strategy:
       matrix:
         check: [lint, type-check, test]
-    
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -57,7 +57,7 @@ jobs:
     name: 🏗️ Build Check
     runs-on: ubuntu-latest
     needs: quality
-    
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -106,11 +106,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [quality, build]
     if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
-    
+
     environment:
       name: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
       url: ${{ steps.pulumi.outputs.preview_url }}
-    
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -152,18 +152,18 @@ jobs:
           else
             STACK_NAME="preview-${{ github.event.number || github.run_number }}"
           fi
-          
+
           echo "Deploying to stack: $STACK_NAME"
-          
+
           # Select or create stack
           pulumi stack select $STACK_NAME || pulumi stack init $STACK_NAME
-          
+
           # Set configuration
           pulumi config set aws:region ${{ secrets.AWS_REGION || 'us-east-1' }}
-          
+
           # Deploy infrastructure
           pulumi up --yes --non-interactive
-          
+
           # Export outputs for Vercel
           echo "preview_url=$(pulumi stack output previewUrl || echo 'https://your-app.vercel.app')" >> $GITHUB_OUTPUT
         env:
@@ -179,11 +179,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build, infrastructure]
     if: always() && needs.build.result == 'success'
-    
+
     environment:
       name: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
       url: ${{ steps.deploy.outputs.preview_url }}
-    
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -224,36 +224,36 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            
+
             const botComment = comments.find(comment => 
               comment.user.type === 'Bot' && 
               comment.body.includes('🚀 Preview Deployment')
             );
-            
+
             const commentBody = `## 🚀 Preview Deployment
-            
+
             **✅ Your construction analysis demo is ready!**
-            
+
             🔗 **Preview URL**: ${{ steps.deploy.outputs.preview-url }}
-            
+
             ### 🏗️ What's included:
             - ✅ **Construction AI Engine**: PDF analysis with GPT-4o
             - ✅ **Trade Detection**: Identifies 9+ construction trades
             - ✅ **5-Agent Workflow**: Manager → File Reader → Trade Mapper → Estimator → Exporter
             - ✅ **Real-time Progress**: Streaming workflow updates
             - ✅ **Professional UI**: Turbopack-powered frontend
-            
+
             ### 📋 Test the demo:
             1. Visit the preview URL above
             2. Upload a construction PDF
             3. Watch the agents analyze your document
             4. Download generated estimates and reports
-            
+
             **Commit**: \`${{ github.sha }}\`
             **Branch**: \`${{ github.head_ref }}\`
             **Build time**: ${{ job.duration }}
             `;
-            
+
             if (botComment) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
@@ -275,7 +275,7 @@ jobs:
     name: 🧹 Cleanup
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -292,4 +292,4 @@ jobs:
           pulumi stack rm $STACK_NAME --yes
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-        continue-on-error: true 
+        continue-on-error: true
