@@ -397,124 +397,70 @@ export default function SimpleEstimatorChat() {
     setStagedFiles((prev) => prev.filter((file) => file.id !== id))
   }
 
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.readAsDataURL(file)
-      reader.onload = () => {
-        const result = reader.result as string
-        // Remove the data:image/jpeg;base64, part
-        const base64 = result.split(',')[1]
-        resolve(base64)
-      }
-      reader.onerror = error => reject(error)
-    })
-  }
+  // Removed fileToBase64 function - no longer needed with Assistant API
 
-  // Process files directly with OpenAI Vision API - bypass Vercel 4.5MB limit
-  const processFilesDirectly = async (files: StagedFile[], message: string): Promise<any> => {
-    // Convert files to base64 for OpenAI API (client-side only)
-    const filesData = await Promise.all(
-      files.map(async (stagedFile) => {
-        // Show processing message for large files
-        if (stagedFile.size > 25 * 1024 * 1024) {
-          const progressMessage: Message = {
-            id: `progress-${Date.now()}`,
-            type: "system",
-            content: `📤 Processing large file: ${stagedFile.name} (${formatFileSize(stagedFile.size)})...`,
-            timestamp: new Date(),
-            progress: 0
-          }
-          setMessages((prev) => [...prev, progressMessage])
+  // Process files with OpenAI Assistant API - handles PDFs natively
+  const processFilesWithAssistant = async (files: StagedFile[], message: string): Promise<any> => {
+    // Show processing message for large files
+    const largeFiles = files.filter(f => f.size > 25 * 1024 * 1024);
+    if (largeFiles.length > 0) {
+      largeFiles.forEach(stagedFile => {
+        const progressMessage: Message = {
+          id: `progress-${Date.now()}-${stagedFile.id}`,
+          type: "system",
+          content: `📤 Processing large file: ${stagedFile.name} (${formatFileSize(stagedFile.size)})...`,
+          timestamp: new Date(),
+          progress: 0
         }
-
-        return {
-          name: stagedFile.name,
-          type: stagedFile.type,
-          data: await fileToBase64(stagedFile.file)
-        }
-      })
-    )
-
-    // Call OpenAI API directly from client - bypasses Vercel serverless limits
-    const openaiApiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY
-    
-    if (!openaiApiKey) {
-      throw new Error('❌ OpenAI API key not configured. Please add NEXT_PUBLIC_OPENAI_API_KEY to your .env.local file and restart the server.')
+        setMessages((prev) => [...prev, progressMessage])
+      });
     }
-    
-    console.log('🔑 Using OpenAI API key:', openaiApiKey.substring(0, 7) + '...')
-    console.log('📁 Processing', filesData.length, 'files for analysis')
-    console.log('📂 File types:', filesData.map(f => `${f.name}: ${f.type}`).join(', '))
+
+    console.log('🤖 Using Assistant API for construction analysis')
+    console.log('📁 Processing', files.length, 'files for analysis')
+    console.log('📂 File types:', files.map(f => `${f.name}: ${f.type}`).join(', '))
 
     // Add progress indicator
     const progressMessage: Message = {
-      id: `api-call-${Date.now()}`,
+      id: `assistant-call-${Date.now()}`,
       type: "system",
-      content: `🤖 Calling OpenAI API with ${filesData.length} file(s)...`,
+      content: `🏗️ EstimAItor analyzing ${files.length} construction document(s)...`,
       timestamp: new Date(),
     }
     setMessages((prev) => [...prev, progressMessage])
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: ESTIMATOR_PROMPT
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `${message}\n\nPlease analyze these construction documents and provide:\n1. List of all detected trades\n2. For each trade: complete Scope of Work and Material Takeoff in CSI order\n3. Flag any missing or unclear information\n\nFocus on accuracy and detail for commercial construction estimating.`
-              },
-              ...filesData.map(file => ({
-                type: "image_url" as const,
-                image_url: {
-                  url: `data:${file.type};base64,${file.data}`,
-                  detail: "high" as const
-                }
-              }))
-            ]
-          }
-        ],
-        max_tokens: 4000,
-        temperature: 0.1,
-      }),
-    })
+    // Prepare FormData for assistant API
+    const formData = new FormData();
+    formData.append('message', message);
+    
+    // Add files directly (no base64 conversion needed!)
+    files.forEach((stagedFile, index) => {
+      formData.append(`file-${index}`, stagedFile.file);
+    });
 
-    console.log('📡 OpenAI API response status:', response.status)
+    const response = await fetch('/api/assistant', {
+      method: 'POST',
+      body: formData, // Send files directly
+    });
+
+    console.log('📡 Assistant API response status:', response.status)
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('❌ OpenAI API error response:', errorText)
+      console.error('❌ Assistant API error response:', errorText)
       let errorData
       try {
         errorData = JSON.parse(errorText)
       } catch {
         errorData = { error: { message: errorText } }
       }
-      throw new Error(errorData.error?.message || `OpenAI API error: ${response.status} - ${errorText}`)
+      throw new Error(errorData.error?.message || `Assistant API error: ${response.status} - ${errorText}`)
     }
 
     const result = await response.json()
-    console.log('✅ OpenAI API call successful, response length:', result.choices[0].message.content.length)
+    console.log('✅ Assistant API call successful, response length:', result.message.length)
     
-    return {
-      id: `analysis-${Date.now()}`,
-      message: result.choices[0].message.content,
-      timestamp: new Date().toISOString(),
-      type: 'assistant',
-      analysisType: 'construction'
-    }
+    return result;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -538,8 +484,8 @@ export default function SimpleEstimatorChat() {
       let result;
       
       if (stagedFiles.length > 0) {
-        // Use direct OpenAI API calls (bypasses Vercel 4.5MB limit)
-        result = await processFilesDirectly(stagedFiles, input);
+        // Use Assistant API (handles PDFs natively, no size limits)
+        result = await processFilesWithAssistant(stagedFiles, input);
       } else {
         // Regular text-only chat
         const response = await fetch('/api/chat', {

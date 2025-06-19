@@ -1,6 +1,9 @@
 # Use the latest official Node.js LTS image (Node 22.x LTS "Jod") with Debian Bookworm
 FROM node:22-bookworm
 
+# Cache bust to force fresh build - updated for PDF processing fix
+ENV CACHE_BUST=20250618_pdf_processing_fix
+
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=development
@@ -82,6 +85,7 @@ RUN pip install --no-cache-dir --break-system-packages \
     # Latest PDF processing
     pypdf2==3.0.1 \
     pdf2image==1.17.0 \
+    Pillow==10.1.0 \
     # Latest data tools
     pandas==2.1.4 \
     numpy==1.26.2 \
