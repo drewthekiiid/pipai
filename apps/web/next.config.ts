@@ -8,8 +8,8 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // Updated configuration for Next.js 15
-  serverExternalPackages: ['sharp'],
+  // Updated configuration for Next.js 15 - include PDF processing dependencies
+  serverExternalPackages: ['sharp', 'canvas', 'pdf-lib', 'pdf-parse'],
   experimental: {
     // Enable larger uploads and longer processing time
     largePageDataBytes: 256 * 1024, // 256KB

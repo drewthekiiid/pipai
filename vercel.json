@@ -3,7 +3,12 @@
   "buildCommand": "pnpm --filter=web build",
   "functions": {
     "apps/web/src/app/api/**/*.ts": {
-      "maxDuration": 60
+      "maxDuration": 300
+    }
+  },
+  "build": {
+    "env": {
+      "PYTHON_VERSION": "3.9"
     }
   }
 }
