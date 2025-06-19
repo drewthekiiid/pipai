@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
     // Enable larger uploads and longer processing time
     largePageDataBytes: 256 * 1024, // 256KB
   },
+  
+  // Workaround for Turbopack NEXT_PUBLIC env var issue (Next.js 15 bug)
+  env: {
+    NEXT_PUBLIC_OPENAI_API_KEY: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+  },
+  
   /* config options here */
 };
 
