@@ -1,9 +1,8 @@
 {
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "turbo build --filter=web",
-  "outputDirectory": "apps/web/.next",
+  "buildCommand": "pnpm --filter=web build",
   "functions": {
-    "src/app/api/**/*.ts": {
+    "apps/web/src/app/api/**/*.ts": {
       "maxDuration": 60
     }
   }
