@@ -152,13 +152,17 @@ const s3AccessKey = new aws.iam.AccessKey("pip-ai-s3-key", {
 // Upstash Resources
 // =============================================================================
 
-// Redis database for caching
+// Import existing Redis database instead of creating a new one
+// This avoids the "database with same name already exists" error
 const upstashRedis = new upstash.RedisDatabase("pip-ai-redis", {
     databaseName: "pip-ai-cache",
-    region: "global",
+    region: "global", 
     primaryRegion: "us-east-1",
     tls: true,
     multizone: true, // Enable high availability
+}, {
+    // Import the existing database to avoid conflicts
+    import: "pip-ai-cache" // Use the existing database name
 });
 
 // TODO: Add Kafka cluster later - commenting out for now due to API issues
