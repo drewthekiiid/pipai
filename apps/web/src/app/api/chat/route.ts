@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { z } from 'zod';
 
+// Configure API route to handle larger payloads for construction documents
+export const runtime = 'nodejs';
+export const maxDuration = 60; // Allow up to 60 seconds for analysis
+export const dynamic = 'force-dynamic';
+
 // Initialize OpenAI client lazily for Vercel compatibility
 let openai: OpenAI | null = null;
 

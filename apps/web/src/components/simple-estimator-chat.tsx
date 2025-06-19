@@ -56,14 +56,38 @@ export default function SimpleEstimatorChat() {
   }
 
   const stageFiles = (files: File[]) => {
-    const newStagedFiles = files.map((file) => ({
-      id: `${Date.now()}-${Math.random()}`,
-      file,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-    }))
-    setStagedFiles((prev) => [...prev, ...newStagedFiles])
+    const maxFileSize = 10 * 1024 * 1024; // 10MB limit per file
+    const validFiles: StagedFile[] = [];
+    const rejectedFiles: string[] = [];
+
+    files.forEach((file) => {
+      if (file.size > maxFileSize) {
+        rejectedFiles.push(`${file.name} (${formatFileSize(file.size)})`);
+      } else {
+        validFiles.push({
+          id: `${Date.now()}-${Math.random()}`,
+          file,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+        });
+      }
+    });
+
+    if (rejectedFiles.length > 0) {
+      // Add error message for rejected files
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        type: "system",
+        content: `⚠️ Some files were too large and skipped (max 10MB per file):\n${rejectedFiles.join('\n')}`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    }
+
+    if (validFiles.length > 0) {
+      setStagedFiles((prev) => [...prev, ...validFiles]);
+    }
   }
 
   const removeStagedFile = (id: string) => {
@@ -132,25 +156,29 @@ export default function SimpleEstimatorChat() {
           if (contentType && contentType.includes('application/json')) {
             const errorData = await response.json();
             errorMessage = errorData.error || errorData.message || errorMessage;
-          } else {
-            // If not JSON, get text content (likely HTML error page)
-            const errorText = await response.text();
-            if (errorText.includes('API key')) {
-              errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
-            } else if (response.status === 401) {
-              errorMessage = 'Authentication failed. Please check your API key.';
-            } else {
-              errorMessage = `Server error: ${response.status}`;
-            }
-          }
-        } catch (parseError) {
-          // If parsing fails, use status-based message
-          if (response.status === 401) {
-            errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
-          } else {
-            errorMessage = `Server error: ${response.status}`;
-          }
-        }
+                     } else {
+             // If not JSON, get text content (likely HTML error page)
+             const errorText = await response.text();
+             if (errorText.includes('API key')) {
+               errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
+             } else if (response.status === 401) {
+               errorMessage = 'Authentication failed. Please check your API key.';
+             } else if (response.status === 413) {
+               errorMessage = 'File too large. Please reduce file size or use smaller images (max recommended: 10MB per file).';
+             } else {
+               errorMessage = `Server error: ${response.status}`;
+             }
+           }
+                 } catch (parseError) {
+           // If parsing fails, use status-based message
+           if (response.status === 401) {
+             errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
+           } else if (response.status === 413) {
+             errorMessage = 'File too large. Please reduce file size or use smaller images (max recommended: 10MB per file).';
+           } else {
+             errorMessage = `Server error: ${response.status}`;
+           }
+         }
         throw new Error(errorMessage);
       }
 
