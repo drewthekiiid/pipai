@@ -159,7 +159,8 @@ const upstashRedis = new upstash.RedisDatabase("pip-ai-redis", {
     region: "global", 
     primaryRegion: "us-east-1",
     tls: true,
-    multizone: true, // Enable high availability
+    // Remove multizone since existing database doesn't have it
+    // multizone: true, 
 }, {
     // Import the existing database to avoid conflicts
     import: "pip-ai-cache" // Use the existing database name
