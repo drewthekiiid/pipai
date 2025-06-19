@@ -160,6 +160,16 @@ jobs:
           # Select or create stack
           pulumi stack select $STACK_NAME || pulumi stack init $STACK_NAME
 
+          # Configure Upstash credentials if they're provided
+          if [ ! -z "$UPSTASH_EMAIL" ] && [ ! -z "$UPSTASH_API_KEY" ]; then
+            echo "Setting Upstash configuration..."
+            pulumi config set upstash:email "$UPSTASH_EMAIL" --secret
+            pulumi config set upstash:apiKey "$UPSTASH_API_KEY" --secret
+          fi
+
+          # Configure AWS region
+          pulumi config set aws:region "$AWS_REGION"
+
           # Deploy infrastructure
           pulumi up --yes --non-interactive
 
