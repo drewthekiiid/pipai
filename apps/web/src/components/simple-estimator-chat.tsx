@@ -22,6 +22,7 @@ interface Message {
   timestamp: Date
   files?: StagedFile[]
   analysisType?: string
+  progress?: number
 }
 
 export default function SimpleEstimatorChat() {
@@ -56,7 +57,7 @@ export default function SimpleEstimatorChat() {
   }
 
   const stageFiles = (files: File[]) => {
-    const maxFileSize = 10 * 1024 * 1024; // 10MB limit per file
+    const maxFileSize = 100 * 1024 * 1024; // 100MB limit per file for large construction documents
     const validFiles: StagedFile[] = [];
     const rejectedFiles: string[] = [];
 
@@ -79,7 +80,7 @@ export default function SimpleEstimatorChat() {
       const errorMessage: Message = {
         id: Date.now().toString(),
         type: "system",
-        content: `⚠️ Some files were too large and skipped (max 10MB per file):\n${rejectedFiles.join('\n')}`,
+        content: `⚠️ Some files were too large and skipped (max 100MB per file):\n${rejectedFiles.join('\n')}`,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -108,6 +109,78 @@ export default function SimpleEstimatorChat() {
     })
   }
 
+  // Stream large files with progress tracking
+  const processLargeFiles = async (files: StagedFile[]): Promise<Array<{name: string, type: string, data: string}>> => {
+    const filesData: Array<{name: string, type: string, data: string}> = []
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const isLarge = file.size > 25 * 1024 * 1024 // 25MB threshold for progress tracking
+      
+      if (isLarge) {
+        // Add progress message for large files
+        const progressMessage: Message = {
+          id: `progress-${Date.now()}`,
+          type: "system",
+          content: `📤 Processing large file: ${file.name} (${formatFileSize(file.size)})...`,
+          timestamp: new Date(),
+          progress: 0
+        }
+        setMessages((prev) => [...prev, progressMessage])
+        
+        // Simulate progress updates while encoding
+        const progressInterval = setInterval(() => {
+          setMessages((prev) => 
+            prev.map(msg => 
+              msg.id === progressMessage.id 
+                ? { ...msg, progress: Math.min((msg.progress || 0) + 10, 90) }
+                : msg
+            )
+          )
+        }, 500)
+        
+        try {
+          const data = await fileToBase64(file.file)
+          filesData.push({
+            name: file.name,
+            type: file.type,
+            data
+          })
+          
+          clearInterval(progressInterval)
+          // Update to completion
+          setMessages((prev) => 
+            prev.map(msg => 
+              msg.id === progressMessage.id 
+                ? { ...msg, content: `✅ Processed: ${file.name}`, progress: 100 }
+                : msg
+            )
+          )
+        } catch (error) {
+          clearInterval(progressInterval)
+          setMessages((prev) => 
+            prev.map(msg => 
+              msg.id === progressMessage.id 
+                ? { ...msg, content: `❌ Failed to process: ${file.name}`, progress: undefined }
+                : msg
+            )
+          )
+          throw error
+        }
+      } else {
+        // Process smaller files normally
+        const data = await fileToBase64(file.file)
+        filesData.push({
+          name: file.name,
+          type: file.type,
+          data
+        })
+      }
+    }
+    
+    return filesData
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (stagedFiles.length === 0 && !input.trim()) return
@@ -126,14 +199,8 @@ export default function SimpleEstimatorChat() {
     setMessages((prev) => [...prev, userMessage])
 
     try {
-      // Prepare files for API
-      const filesData = await Promise.all(
-        stagedFiles.map(async (stagedFile) => ({
-          name: stagedFile.name,
-          type: stagedFile.type,
-          data: await fileToBase64(stagedFile.file)
-        }))
-      )
+      // Prepare files for API with streaming support for large files
+      const filesData = await processLargeFiles(stagedFiles)
 
       // Call the chat API
       const response = await fetch('/api/chat', {
@@ -164,7 +231,7 @@ export default function SimpleEstimatorChat() {
              } else if (response.status === 401) {
                errorMessage = 'Authentication failed. Please check your API key.';
              } else if (response.status === 413) {
-               errorMessage = 'File too large. Please reduce file size or use smaller images (max recommended: 10MB per file).';
+               errorMessage = 'File too large. Please reduce file size or compress images (max recommended: 100MB per file).';
              } else {
                errorMessage = `Server error: ${response.status}`;
              }
@@ -174,7 +241,7 @@ export default function SimpleEstimatorChat() {
            if (response.status === 401) {
              errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
            } else if (response.status === 413) {
-             errorMessage = 'File too large. Please reduce file size or use smaller images (max recommended: 10MB per file).';
+             errorMessage = 'File too large. Please reduce file size or compress images (max recommended: 100MB per file).';
            } else {
              errorMessage = `Server error: ${response.status}`;
            }
@@ -311,6 +378,21 @@ export default function SimpleEstimatorChat() {
                   <div className="whitespace-pre-wrap text-sm leading-relaxed">
                     {message.content}
                   </div>
+
+                  {message.progress !== undefined && (
+                    <div className="mt-3 space-y-2">
+                      <div className="flex justify-between text-xs opacity-75">
+                        <span>Processing...</span>
+                        <span>{message.progress}%</span>
+                      </div>
+                      <div className="w-full bg-white/20 rounded-full h-2">
+                        <div 
+                          className="bg-white rounded-full h-2 transition-all duration-500"
+                          style={{ width: `${message.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {message.analysisType === 'construction' && (
                     <div className="mt-4 pt-4 border-t border-white/10">

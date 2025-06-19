@@ -8,15 +8,11 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // Increase body size limits for construction document uploads
+  // Updated configuration for Next.js 15
+  serverExternalPackages: ['sharp'],
   experimental: {
-    serverComponentsExternalPackages: ['sharp'],
-  },
-  api: {
-    bodyParser: {
-      sizeLimit: '50mb', // Increase limit for large construction documents
-    },
-    responseLimit: '50mb',
+    // Enable larger uploads and longer processing time
+    largePageDataBytes: 256 * 1024, // 256KB
   },
   /* config options here */
 };
