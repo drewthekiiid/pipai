@@ -5,12 +5,10 @@
   "outputDirectory": ".next",
   "functions": {
     "src/app/api/upload/**/*.ts": {
-      "maxDuration": 60,
-      "maxRequestSize": "100mb"
+      "maxDuration": 60
     },
     "src/app/api/assistant/**/*.ts": {
-      "maxDuration": 90,
-      "maxRequestSize": "100mb"
+      "maxDuration": 90
     },
     "src/app/api/**/*.ts": {
       "maxDuration": 60

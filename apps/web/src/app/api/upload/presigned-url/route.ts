@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 // Configure API route
 export const runtime = 'nodejs';
 export const maxDuration = 30; // Quick presigned URL generation
+export const maxRequestSize = '100mb';
 
 const config = {
   aws: {

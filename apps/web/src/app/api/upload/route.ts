@@ -10,6 +10,10 @@ import { Redis } from '@upstash/redis';
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 
+// Configuration for large file uploads
+export const maxDuration = 60;
+export const maxRequestSize = '100mb';
+
 // Environment configuration with validation
 const config = {
   aws: {
