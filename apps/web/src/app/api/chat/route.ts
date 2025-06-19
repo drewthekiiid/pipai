@@ -320,14 +320,50 @@ export async function POST(request: NextRequest) {
     // Initialize OpenAI client at request time for Vercel compatibility
     const client = getOpenAIClient();
     
-    const body = await request.json();
-    const { message, files } = chatRequestSchema.parse(body);
+    const contentType = request.headers.get('content-type') || '';
+    
+    let message: string;
+    let files: Array<{name: string, type: string, data: string}> = [];
+    
+    if (contentType.includes('multipart/form-data')) {
+      // Handle FormData uploads (more efficient for large files)
+      const formData = await request.formData();
+      message = formData.get('message') as string || '';
+      
+      // Process uploaded files
+      const uploadedFiles: Array<{name: string, type: string, data: string}> = [];
+      
+      for (const [key, value] of formData.entries()) {
+        if (key.startsWith('file-') && value instanceof File) {
+          console.log(`📁 Processing file: ${value.name} (${Math.round(value.size / 1024 / 1024)}MB)`);
+          
+          // Convert file to base64 for OpenAI
+          const arrayBuffer = await value.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          const base64 = buffer.toString('base64');
+          
+          uploadedFiles.push({
+            name: value.name,
+            type: value.type,
+            data: base64
+          });
+        }
+      }
+      
+      files = uploadedFiles;
+    } else {
+      // Handle JSON requests (for text-only chats)
+      const body = await request.json();
+      const { message: msg, files: fileData } = chatRequestSchema.parse(body);
+      message = msg;
+      files = fileData || [];
+    }
 
     // Check if we have construction documents to analyze
     if (files && files.length > 0) {
       console.log(`🏗️ Analyzing ${files.length} construction document(s)`);
       
-      // Process construction documents with GPT-4.1-2025-04-14 Vision
+      // Process construction documents with GPT-4o Vision
       const analysis = await analyzeConstructionDocuments(client, files, message);
       
       const response = {

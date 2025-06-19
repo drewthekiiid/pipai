@@ -109,76 +109,63 @@ export default function SimpleEstimatorChat() {
     })
   }
 
-  // Stream large files with progress tracking
-  const processLargeFiles = async (files: StagedFile[]): Promise<Array<{name: string, type: string, data: string}>> => {
-    const filesData: Array<{name: string, type: string, data: string}> = []
+  // Stream files using FormData for efficient large file uploads
+  const uploadWithFormData = async (files: StagedFile[], message: string): Promise<any> => {
+    const formData = new FormData()
     
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-      const isLarge = file.size > 25 * 1024 * 1024 // 25MB threshold for progress tracking
+    // Add text data
+    formData.append('message', message || "Please analyze these construction documents and provide trade detection, scope of work, and material takeoffs in CSI order.")
+    formData.append('userId', 'demo-user')
+    
+    // Add files directly to FormData (much more efficient than base64)
+    files.forEach((stagedFile, index) => {
+      formData.append(`file-${index}`, stagedFile.file, stagedFile.name)
+    })
+    
+    // Track progress for large uploads
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
       
-      if (isLarge) {
-        // Add progress message for large files
-        const progressMessage: Message = {
-          id: `progress-${Date.now()}`,
-          type: "system",
-          content: `📤 Processing large file: ${file.name} (${formatFileSize(file.size)})...`,
-          timestamp: new Date(),
-          progress: 0
-        }
-        setMessages((prev) => [...prev, progressMessage])
-        
-        // Simulate progress updates while encoding
-        const progressInterval = setInterval(() => {
-          setMessages((prev) => 
-            prev.map(msg => 
-              msg.id === progressMessage.id 
-                ? { ...msg, progress: Math.min((msg.progress || 0) + 10, 90) }
-                : msg
-            )
-          )
-        }, 500)
-        
-        try {
-          const data = await fileToBase64(file.file)
-          filesData.push({
-            name: file.name,
-            type: file.type,
-            data
-          })
+      // Track upload progress
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const percentComplete = Math.round((e.loaded / e.total) * 100)
           
-          clearInterval(progressInterval)
-          // Update to completion
-          setMessages((prev) => 
-            prev.map(msg => 
-              msg.id === progressMessage.id 
-                ? { ...msg, content: `✅ Processed: ${file.name}`, progress: 100 }
-                : msg
-            )
-          )
-        } catch (error) {
-          clearInterval(progressInterval)
-          setMessages((prev) => 
-            prev.map(msg => 
-              msg.id === progressMessage.id 
-                ? { ...msg, content: `❌ Failed to process: ${file.name}`, progress: undefined }
-                : msg
-            )
-          )
-          throw error
+          // Update progress in UI
+          setMessages((prev) => {
+            const lastMessage = prev[prev.length - 1]
+            if (lastMessage && lastMessage.type === 'user') {
+              return prev.map((msg, index) => 
+                index === prev.length - 1 
+                  ? { ...msg, progress: percentComplete }
+                  : msg
+              )
+            }
+            return prev
+          })
         }
-      } else {
-        // Process smaller files normally
-        const data = await fileToBase64(file.file)
-        filesData.push({
-          name: file.name,
-          type: file.type,
-          data
-        })
-      }
-    }
-    
-    return filesData
+      })
+      
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const response = JSON.parse(xhr.responseText)
+            resolve(response)
+          } catch (e) {
+            reject(new Error('Invalid JSON response'))
+          }
+        } else {
+          reject(new Error(`HTTP ${xhr.status}`))
+        }
+      })
+      
+      xhr.addEventListener('error', () => {
+        reject(new Error('Network error'))
+      })
+      
+      xhr.open('POST', '/api/chat')
+      xhr.send(formData)
+    })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -198,58 +185,61 @@ export default function SimpleEstimatorChat() {
 
     setMessages((prev) => [...prev, userMessage])
 
-    try {
-      // Prepare files for API with streaming support for large files
-      const filesData = await processLargeFiles(stagedFiles)
-
-      // Call the chat API
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: input || "Please analyze these construction documents and provide trade detection, scope of work, and material takeoffs in CSI order.",
-          userId: 'demo-user',
-          files: filesData.length > 0 ? filesData : undefined
-        }),
-      })
-
-      if (!response.ok) {
-        let errorMessage = `HTTP ${response.status}`;
         try {
-          // Check if response is JSON before parsing
-          const contentType = response.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
-            const errorData = await response.json();
-            errorMessage = errorData.error || errorData.message || errorMessage;
-                     } else {
-             // If not JSON, get text content (likely HTML error page)
-             const errorText = await response.text();
-             if (errorText.includes('API key')) {
-               errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
-             } else if (response.status === 401) {
-               errorMessage = 'Authentication failed. Please check your API key.';
-             } else if (response.status === 413) {
-               errorMessage = 'File too large. Please reduce file size or compress images (max recommended: 100MB per file).';
-             } else {
-               errorMessage = `Server error: ${response.status}`;
-             }
-           }
-                 } catch (parseError) {
-           // If parsing fails, use status-based message
-           if (response.status === 401) {
-             errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
-           } else if (response.status === 413) {
-             errorMessage = 'File too large. Please reduce file size or compress images (max recommended: 100MB per file).';
-           } else {
-             errorMessage = `Server error: ${response.status}`;
-           }
-         }
-        throw new Error(errorMessage);
-      }
+      let result;
+      
+      if (stagedFiles.length > 0) {
+        // Use FormData for file uploads (more efficient for large files)
+        result = await uploadWithFormData(stagedFiles, input);
+      } else {
+        // Regular text-only chat
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: input || "Please help me with construction estimating questions.",
+            userId: 'demo-user'
+          }),
+        });
 
-      const result = await response.json()
+        if (!response.ok) {
+          let errorMessage = `HTTP ${response.status}`;
+          try {
+            // Check if response is JSON before parsing
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              const errorData = await response.json();
+              errorMessage = errorData.error || errorData.message || errorMessage;
+            } else {
+              // If not JSON, get text content (likely HTML error page)
+              const errorText = await response.text();
+              if (errorText.includes('API key')) {
+                errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
+              } else if (response.status === 401) {
+                errorMessage = 'Authentication failed. Please check your API key.';
+              } else if (response.status === 413) {
+                errorMessage = 'File too large. Please reduce file size or compress images (max recommended: 100MB per file).';
+              } else {
+                errorMessage = `Server error: ${response.status}`;
+              }
+            }
+          } catch (parseError) {
+            // If parsing fails, use status-based message
+            if (response.status === 401) {
+              errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
+            } else if (response.status === 413) {
+              errorMessage = 'File too large. Please reduce file size or compress images (max recommended: 100MB per file).';
+            } else {
+              errorMessage = `Server error: ${response.status}`;
+            }
+          }
+          throw new Error(errorMessage);
+        }
+
+        result = await response.json();
+      }
 
       // Add assistant response
       const assistantMessage: Message = {
