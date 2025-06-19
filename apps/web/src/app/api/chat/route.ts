@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     if (files && files.length > 0) {
       console.log(`🏗️ Analyzing ${files.length} construction document(s)`);
       
-      // Process construction documents with GPT-4o Vision
+      // Process construction documents with GPT-4.1-2025-04-14 Vision
       const analysis = await analyzeConstructionDocuments(client, files, message);
       
       const response = {
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
     } else {
       // Regular chat without files
       const chatResponse = await client.chat.completions.create({
-        model: "gpt-4o",
+        model: "gpt-4.1-2025-04-14",
         messages: [
           {
             role: "system",
@@ -149,7 +149,7 @@ async function analyzeConstructionDocuments(client: OpenAI, files: Array<{name: 
   try {
     console.log('🔍 Starting construction document analysis...');
 
-    // Prepare the messages for GPT-4o Vision
+    // Prepare the messages for GPT-4.1-2025-04-14 Vision
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
@@ -174,7 +174,7 @@ async function analyzeConstructionDocuments(client: OpenAI, files: Array<{name: 
     ];
 
     const response = await client.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4.1-2025-04-14",
       messages,
       max_tokens: 4000,
       temperature: 0.1, // Low temperature for consistency in construction analysis
@@ -198,6 +198,7 @@ export async function GET() {
     
     return NextResponse.json({
       status: 'EstimAItor Chat API is running',
+      model: 'gpt-4.1-2025-04-14',
       environment: process.env.VERCEL ? 'Vercel' : process.env.NODE_ENV || 'development',
       openai_configured: true,
       capabilities: [
@@ -206,7 +207,7 @@ export async function GET() {
         'CSI Division classification',
         'Scope of Work generation',
         'Material Takeoff calculation',
-        'GPT-4o Vision integration'
+        'GPT-4.1-2025-04-14 Vision integration'
       ],
       timestamp: new Date().toISOString(),
     });
