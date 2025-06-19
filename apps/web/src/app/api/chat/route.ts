@@ -334,7 +334,7 @@ export async function POST(request: NextRequest) {
     } else {
       // Regular chat without files
       const chatResponse = await client.chat.completions.create({
-        model: "gpt-4.1-2025-04-14",
+        model: "gpt-4o",
         messages: [
           {
             role: "system",
@@ -414,7 +414,7 @@ async function analyzeConstructionDocuments(client: OpenAI, files: Array<{name: 
     ];
 
     const response = await client.chat.completions.create({
-      model: "gpt-4.1-2025-04-14",
+      model: "gpt-4.1",
       messages,
       max_tokens: 4000,
       temperature: 0.1, // Low temperature for consistency in construction analysis
@@ -438,7 +438,7 @@ export async function GET() {
     
     return NextResponse.json({
       status: 'EstimAItor Chat API is running',
-      model: 'gpt-4.1-2025-04-14',
+      model: 'gpt-4o',
       environment: process.env.VERCEL ? 'Vercel' : process.env.NODE_ENV || 'development',
       openai_configured: true,
       capabilities: [
@@ -447,7 +447,7 @@ export async function GET() {
         'CSI Division classification',
         'Scope of Work generation',
         'Material Takeoff calculation',
-        'GPT-4.1-2025-04-14 Vision integration'
+        'GPT-4o Vision integration'
       ],
       timestamp: new Date().toISOString(),
     });
