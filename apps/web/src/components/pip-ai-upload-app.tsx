@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
 import { UploadDock } from "@pip-ai/ui";
+import React, { useCallback, useState } from "react";
 import { ProgressIndicator } from "./progress-indicator";
 import { ResultsDisplay } from "./results-display";
 import { useWorkflowStream } from "./use-workflow-stream";

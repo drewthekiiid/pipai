@@ -2,10 +2,10 @@
 
 import type React from "react"
 
-import { useState, useRef, useEffect } from "react"
-import { Upload, Send, Paperclip, X, FileText, Download, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { Download, ExternalLink, FileText, Paperclip, Send, Upload, X } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 
 interface StagedFile {
   id: string

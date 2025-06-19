@@ -1,6 +1,5 @@
 import * as aws from "@pulumi/aws";
 // import * as vercel from "@pulumiverse/vercel";
-import * as upstash from "@upstash/pulumi";
 import * as random from "@pulumi/random";
 
 // =============================================================================
@@ -149,17 +148,18 @@ const s3AccessKey = new aws.iam.AccessKey("pip-ai-s3-key", {
 // });
 
 // =============================================================================
-// Upstash Resources
+// Upstash Resources - TODO: Enable after setting up Upstash credentials
 // =============================================================================
 
-// Redis database for caching
-const upstashRedis = new upstash.RedisDatabase("pip-ai-redis", {
-    databaseName: "pip-ai-cache",
-    region: "global",
-    primaryRegion: "us-east-1",
-    tls: true,
-    multizone: true, // Enable high availability
-});
+// TODO: Uncomment after setting up UPSTASH_EMAIL and UPSTASH_API_KEY secrets
+// // Redis database for caching
+// const upstashRedis = new upstash.RedisDatabase("pip-ai-redis", {
+//     databaseName: "pip-ai-cache",
+//     region: "global",
+//     primaryRegion: "us-east-1",
+//     tls: true,
+//     multizone: true, // Enable high availability
+// });
 
 // TODO: Add Kafka cluster later - commenting out for now due to API issues
 // // Kafka cluster for event streaming
@@ -203,9 +203,9 @@ export const outputs = {
     // vercelProjectId: vercelProject.id,
     // vercelProjectName: vercelProject.name,
     
-    // Upstash Redis
-    upstashRedisUrl: upstashRedis.endpoint,
-    upstashRedisToken: upstashRedis.restToken,
+    // Upstash Redis - TODO: Enable after setting up Upstash credentials
+    // upstashRedisUrl: upstashRedis.endpoint,
+    // upstashRedisToken: upstashRedis.restToken,
     
     // Upstash Kafka (commented out for now)
     // upstashKafkaEndpoint: upstashKafka.restEndpoint,

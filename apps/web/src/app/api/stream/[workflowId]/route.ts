@@ -3,8 +3,8 @@
  * GET /api/stream/[workflowId] - Stream workflow execution progress
  */
 
+import { Connection, Client as TemporalClient } from '@temporalio/client';
 import { NextRequest, NextResponse } from 'next/server';
-import { Client as TemporalClient, Connection } from '@temporalio/client';
 
 // Environment configuration
 const config = {
