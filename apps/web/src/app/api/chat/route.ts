@@ -7,9 +7,9 @@ const chatRequestSchema = z.object({
   userId: z.string().min(1, 'User ID is required'),
 });
 
-// Configure for larger requests and longer processing
+// Configure for longer processing with Assistants API
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 120; // 2 minutes for assistant responses
 export const dynamic = 'force-dynamic';
 
 function getOpenAIClient(): OpenAI {
@@ -27,52 +27,57 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { message, userId } = chatRequestSchema.parse(body);
 
-    console.log(`💬 Chat request from user ${userId}: ${message.substring(0, 100)}...`);
+    console.log(`🤖 Assistant chat request from user ${userId}: ${message.substring(0, 100)}...`);
 
     const openai = getOpenAIClient();
+    const assistantId = process.env.OPENAI_ASSISTANT_ID || 'asst_p4zYGecM2u6Fd676lma1OGfV';
 
-    // Use Chat Completions API for fast, real-time responses
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini', // Fast and cost-effective for chat
-      messages: [
-        {
-          role: 'system',
-          content: `You are EstimAItor, a professional construction estimation assistant. You help with:
-          
-• Construction document analysis and interpretation
-• Trade analysis and CSI division classification  
-• Material takeoffs and quantity calculations
-• Scope of work generation and project planning
-• Construction cost estimation and budgeting
-• Building code compliance and regulations
-
-Provide helpful, accurate responses about construction topics. If users want to upload documents for detailed analysis, direct them to use the file upload feature for comprehensive trade analysis, takeoffs, and estimates.
-
-Keep responses conversational but professional. Focus on construction industry expertise.`
-        },
-        {
-          role: 'user', 
-          content: message
-        }
-      ],
-      max_tokens: 500,
-      temperature: 0.7,
-      stream: false
+    // Create a new thread for this conversation
+    const thread = await openai.beta.threads.create();
+    
+    // Add the user's message to the thread
+    await openai.beta.threads.messages.create(thread.id, {
+      role: 'user',
+      content: message
     });
 
-    const assistantMessage = completion.choices[0]?.message?.content || 'I apologize, but I was unable to generate a response. Please try again.';
+    // Run the assistant
+    const run = await openai.beta.threads.runs.create(thread.id, {
+      assistant_id: assistantId,
+    });
 
-    const response = {
-      id: `chat-${Date.now()}`,
-      message: assistantMessage,
-      timestamp: new Date().toISOString(),
-      type: 'assistant',
-      model: 'gpt-4o-mini',
-      usage: completion.usage
-    };
+    // Wait for the run to complete
+    let runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+    
+    while (runStatus.status === 'queued' || runStatus.status === 'in_progress') {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+    }
 
-    console.log(`✅ Chat response generated successfully (${completion.usage?.total_tokens} tokens)`);
-    return NextResponse.json(response);
+    if (runStatus.status === 'completed') {
+      // Get the assistant's response
+      const messages = await openai.beta.threads.messages.list(thread.id);
+      const assistantMessage = messages.data[0];
+      
+      if (assistantMessage.role === 'assistant' && assistantMessage.content[0].type === 'text') {
+        const response = {
+          id: `assistant-${Date.now()}`,
+          message: assistantMessage.content[0].text.value,
+          timestamp: new Date().toISOString(),
+          type: 'assistant',
+          threadId: thread.id,
+          runId: run.id,
+          assistantId: assistantId
+        };
+
+        console.log(`✅ Assistant response generated successfully`);
+        return NextResponse.json(response);
+      } else {
+        throw new Error('Unexpected response format from assistant');
+      }
+    } else {
+      throw new Error(`Assistant run failed with status: ${runStatus.status}`);
+    }
 
   } catch (error) {
     console.error('❌ Chat API error:', error);
@@ -96,6 +101,12 @@ Keep responses conversational but professional. Focus on construction industry e
         return NextResponse.json({
           error: 'OpenAI API rate limit exceeded. Please try again later.'
         }, { status: 429 });
+      }
+
+      if (error.message.includes('timeout')) {
+        return NextResponse.json({
+          error: 'Assistant response timed out. Please try again.'
+        }, { status: 408 });
       }
     }
 
