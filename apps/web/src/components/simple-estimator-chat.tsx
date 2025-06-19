@@ -125,8 +125,33 @@ export default function SimpleEstimatorChat() {
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || `HTTP ${response.status}`)
+        let errorMessage = `HTTP ${response.status}`;
+        try {
+          // Check if response is JSON before parsing
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } else {
+            // If not JSON, get text content (likely HTML error page)
+            const errorText = await response.text();
+            if (errorText.includes('API key')) {
+              errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
+            } else if (response.status === 401) {
+              errorMessage = 'Authentication failed. Please check your API key.';
+            } else {
+              errorMessage = `Server error: ${response.status}`;
+            }
+          }
+        } catch (parseError) {
+          // If parsing fails, use status-based message
+          if (response.status === 401) {
+            errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
+          } else {
+            errorMessage = `Server error: ${response.status}`;
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json()
