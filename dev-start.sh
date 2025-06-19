@@ -67,8 +67,8 @@ if ps -p $NEXT_PID > /dev/null; then
     fi
     
     # Test the API endpoint
-    if curl -s http://localhost:3000/api/upload > /dev/null; then
-        echo "   ✅ Unified API running on http://localhost:3000/api"
+    if curl -s http://localhost:3000/api/upload/presigned-url > /dev/null; then
+        echo "   ✅ Unified API running on http://localhost:3000/api/upload/presigned-url"
     else
         echo "   ⚠️  API may still be starting..."
     fi
@@ -77,8 +77,8 @@ if ps -p $NEXT_PID > /dev/null; then
     echo "🎉 Unified development environment ready!"
     echo "📊 Services:"
     echo "   🌐 Frontend: http://localhost:3000"
-    echo "   🔧 API:      http://localhost:3000/api/upload"
-    echo "   📊 Health:   http://localhost:3000/api/upload (GET)"
+    echo "   🔧 API:      http://localhost:3000/api/upload/presigned-url"
+    echo "   📊 Chat:     http://localhost:3000/api/chat"
     echo ""
     echo "💡 Press Ctrl+C to stop the development server"
     echo "📝 Monitoring Next.js... (Ctrl+C to stop)"

@@ -2,24 +2,16 @@
  * Example React component showing how to use the PIP AI Upload API
  */
 
-import React, { useState, useCallback } from 'react';
-import { createPipAIClient, type UploadResponse, type WorkflowStatus } from '@pip-ai/shared';
+'use client';
 
-// Initialize the client (in a real app, this would come from config)
-const uploadClient = createPipAIClient(
-  process.env.NEXT_PUBLIC_UPLOAD_API_URL || 'http://localhost:8000',
-  {
-    userId: 'demo-user', // In production, get from auth context
-    generateSummary: true,
-    detectLanguage: true,
-  }
-);
+import { uploadFileDirect, type UploadResponse } from '@pip-ai/shared';
+import React, { useCallback, useState } from 'react';
 
 interface UploadProgress {
   upload?: UploadResponse;
-  status?: WorkflowStatus;
   progress: number;
   step: string;
+  status?: any;
   error?: string;
 }
 
@@ -38,38 +30,22 @@ export function FileUploadExample() {
     });
 
     try {
-      // Upload file and start workflow
-      const upload = await uploadClient.upload(file, {
-        extractImages: file.type === 'application/pdf',
-        analysisType: 'auto',
-      });
-
-      setUploadProgress({
-        upload,
-        progress: 25,
-        step: 'File uploaded, starting analysis...',
-      });
-
-      // Wait for completion with progress updates
-      const result = await uploadClient.waitForCompletion(upload.workflow_id, {
-        pollInterval: 1000,
-        timeout: 300000, // 5 minutes
-        onProgress: (status) => {
-          setUploadProgress(prev => ({
-            ...prev!,
-            status,
-            progress: Math.max(25, status.status.progress || 0),
-            step: status.status.step || 'Processing...',
-          }));
-        },
+      // Upload file directly to S3 using presigned URLs
+      const upload = await uploadFileDirect(file, 'demo-user', (progress) => {
+        setUploadProgress(prev => ({
+          ...prev!,
+          progress,
+          step: progress < 10 ? 'Getting upload URL...' : 
+                progress < 70 ? 'Uploading to S3...' : 
+                progress < 100 ? 'Completing upload...' : 'Upload complete!',
+        }));
       });
 
       setUploadProgress(prev => ({
         ...prev!,
-        status: result,
+        upload,
         progress: 100,
-        step: result.status.error ? 'Analysis failed' : 'Analysis completed!',
-        error: result.status.error,
+        step: 'Upload completed successfully!',
       }));
 
     } catch (error) {
@@ -86,20 +62,15 @@ export function FileUploadExample() {
   }, []);
 
   const handleCancel = useCallback(async () => {
-    if (uploadProgress?.upload?.workflow_id) {
-      try {
-        await uploadClient.cancelWorkflow(uploadProgress.upload.workflow_id);
-        setUploadProgress(prev => ({
-          ...prev!,
-          step: 'Analysis cancelled',
-          error: 'Cancelled by user',
-        }));
-        setIsUploading(false);
-      } catch (error) {
-        console.error('Failed to cancel workflow:', error);
-      }
-    }
-  }, [uploadProgress?.upload?.workflow_id]);
+    // For direct uploads, we can't cancel S3 uploads once started
+    // This would need to be implemented via workflow cancellation if needed
+    setUploadProgress(prev => ({
+      ...prev!,
+      step: 'Upload cancelled',
+      error: 'Cancelled by user',
+    }));
+    setIsUploading(false);
+  }, []);
 
   return (
     <div className="max-w-md mx-auto p-6 bg-white rounded-lg shadow-lg">

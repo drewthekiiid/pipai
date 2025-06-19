@@ -5,8 +5,8 @@ export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes for complex document analysis
 export const dynamic = 'force-dynamic';
 
-// Increase the maximum request size for construction documents
-export const maxRequestSize = '100mb';
+// Only handling metadata for S3 URLs now, not actual files
+export const maxRequestSize = '10mb';
 
 // Initialize assistant client
 function getAssistantClient(): ConstructionAssistant {
@@ -25,63 +25,17 @@ export async function POST(request: NextRequest) {
     console.log('🤖 Assistant API called');
     
     const contentType = request.headers.get('content-type') || '';
-    let message: string;
-    let files: File[] | { name: string; url: string; size: number }[] = [];
-    let analysisMode: 'files' | 'urls' = 'files';
-
-    // Handle both FormData (legacy) and JSON (new S3 URLs) formats
-    if (contentType.includes('multipart/form-data')) {
-      console.log('📄 Using FormData mode (legacy)');
-      
-      // Parse form data
-      const formData = await request.formData();
-      message = formData.get('message') as string || 'Analyze these construction documents';
-      
-      // Extract files and check sizes
-      const fileArray: File[] = [];
-      const maxFileSize = 75 * 1024 * 1024; // 75MB per file
-      const totalMaxSize = 90 * 1024 * 1024; // 90MB total
-      let totalSize = 0;
-      
-      for (const [key, value] of formData.entries()) {
-        if (key.startsWith('file-') && value instanceof File) {
-          // Check individual file size
-          if (value.size > maxFileSize) {
-            return NextResponse.json({
-              error: `File "${value.name}" is too large (${Math.round(value.size / 1024 / 1024)}MB). Maximum size is 75MB per file.`,
-              hint: 'Try compressing the PDF or splitting large documents into smaller files.'
-            }, { status: 413 });
-          }
-          
-          totalSize += value.size;
-          fileArray.push(value);
-        }
-      }
-
-      // Check total size
-      if (totalSize > totalMaxSize) {
-        return NextResponse.json({
-          error: `Total upload size is too large (${Math.round(totalSize / 1024 / 1024)}MB). Maximum total size is 90MB.`,
-          hint: 'Try uploading fewer files at once or compress your PDFs.'
-        }, { status: 413 });
-      }
-
-      files = fileArray;
-      analysisMode = 'files';
-      
-    } else if (contentType.includes('application/json')) {
-      console.log('🔗 Using JSON mode with S3 URLs (new)');
-      
-      const body = await request.json();
-      message = body.message || 'Analyze these construction documents';
-      files = body.files || [];
-      analysisMode = 'urls';
-      
-    } else {
+    
+    // Only support JSON with S3 URLs now (no more FormData uploads)
+    if (!contentType.includes('application/json')) {
       return NextResponse.json({
-        error: 'Assistant API requires either multipart/form-data or application/json'
+        error: 'Assistant API only supports JSON requests with S3 file URLs'
       }, { status: 400 });
     }
+
+    const body = await request.json();
+    const message = body.message || 'Analyze these construction documents';
+    const files: { name: string; url: string; size: number }[] = body.files || [];
 
     if (files.length === 0) {
       return NextResponse.json({
@@ -89,25 +43,16 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    console.log(`📁 Processing ${files.length} file(s) with EstimAItor assistant in ${analysisMode} mode`);
-    
-    if (analysisMode === 'files') {
-      (files as File[]).forEach(file => {
-        console.log(`  - ${file.name} (${Math.round(file.size / 1024)}KB, ${file.type})`);
-      });
-    } else {
-      (files as { name: string; url: string; size: number }[]).forEach(file => {
-        console.log(`  - ${file.name} (${Math.round(file.size / 1024)}KB) from S3`);
-      });
-    }
+    console.log(`📁 Processing ${files.length} file(s) with EstimAItor assistant using S3 URLs`);
+    files.forEach(file => {
+      console.log(`  - ${file.name} (${Math.round(file.size / 1024)}KB) from S3`);
+    });
 
     // Initialize assistant client
     const assistant = getAssistantClient();
 
-    // Analyze documents using assistant
-    const analysis = analysisMode === 'files' 
-      ? await assistant.analyzeDocuments(files as File[], message)
-      : await assistant.analyzeDocumentsFromUrls(files as { name: string; url: string; size: number }[], message);
+    // Analyze documents using S3 URLs
+    const analysis = await assistant.analyzeDocumentsFromUrls(files, message);
 
     const response = {
       id: `assistant-${Date.now()}`,
@@ -115,9 +60,7 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString(),
       type: 'assistant',
       analysisType: 'construction',
-      files: analysisMode === 'files' 
-        ? (files as File[]).map(f => ({ name: f.name, size: f.size, type: f.type }))
-        : (files as { name: string; url: string; size: number }[]).map(f => ({ name: f.name, size: f.size, type: 'application/pdf' }))
+      files: files.map(f => ({ name: f.name, size: f.size, type: 'application/pdf' }))
     };
 
     console.log('✅ Assistant analysis completed successfully');

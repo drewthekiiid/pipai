@@ -45,36 +45,74 @@ export function PipAIUploadApp() {
     setSelectedFile(file);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('userId', 'demo-user-' + Date.now());
-      formData.append('analysisType', 'document');
-
-      // Simulate upload progress
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => Math.min(prev + 10, 90));
-      }, 100);
-
-      const response = await fetch('/api/upload', {
+      console.log(`🚀 Starting direct S3 upload for: ${file.name} (${Math.round(file.size / 1024 / 1024)}MB)`);
+      
+      // Step 1: Get presigned URL
+      setUploadProgress(5);
+      const presignedResponse = await fetch('/api/upload/presigned-url', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          userId: 'demo-user'
+        })
       });
 
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
+      if (!presignedResponse.ok) {
+        const error = await presignedResponse.json();
+        throw new Error(error.error || 'Failed to get upload URL');
       }
 
-      const data: UploadResponse = await response.json();
+      const { presignedUrl, fileUrl, s3Key, fileId } = await presignedResponse.json();
       
-      if (!data.success) {
-        throw new Error(data.error || 'Upload failed');
+      // Step 2: Upload directly to S3
+      setUploadProgress(10);
+      console.log(`📤 Uploading directly to S3...`);
+      
+      const uploadResponse = await fetch(presignedUrl, {
+        method: 'PUT',
+        body: file,
+        headers: {
+          'Content-Type': file.type
+        }
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`S3 upload failed: ${uploadResponse.status} ${uploadResponse.statusText}`);
       }
 
-      console.log('Upload successful:', data);
-      setWorkflowId(data.workflowId);
+      setUploadProgress(70);
+      console.log(`✅ Direct S3 upload successful`);
+
+      // Step 3: Notify API that upload is complete
+      setUploadProgress(80);
+      console.log(`🔔 Notifying API of upload completion...`);
+      
+      const completeResponse = await fetch('/api/upload/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileUrl,
+          fileName: file.name,
+          s3Key,
+          fileId,
+          userId: 'demo-user',
+          fileSize: file.size
+        })
+      });
+
+      if (!completeResponse.ok) {
+        const error = await completeResponse.json();
+        throw new Error(error.error || 'Failed to complete upload');
+      }
+
+      const data = await completeResponse.json();
+      setUploadProgress(100);
+      
+      console.log(`🎉 Direct upload complete: ${file.name} → Workflow ${data.workflow_id}`);
+      setWorkflowId(data.workflow_id);
       setUploadState('processing');
 
     } catch (err) {

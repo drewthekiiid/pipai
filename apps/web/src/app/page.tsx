@@ -168,28 +168,67 @@ export default function FuturisticChat() {
         }
         setMessages((prev) => [...prev, uploadMessage])
 
-        // Upload file to backend
-        const formData = new FormData()
-        formData.append('file', stagedFile.file)
-        formData.append('userId', 'demo-user') // In a real app, this would come from auth
-        formData.append('analysisType', 'construction')
-
-        const uploadResponse = await fetch('/api/upload', {
+        // Upload file directly to S3 using presigned URLs
+        console.log(`🚀 Starting direct S3 upload for: ${stagedFile.name} (${Math.round(stagedFile.file.size / 1024 / 1024)}MB)`);
+        
+        // Step 1: Get presigned URL
+        const presignedResponse = await fetch('/api/upload/presigned-url', {
           method: 'POST',
-          body: formData,
-        })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName: stagedFile.name,
+            fileType: stagedFile.file.type,
+            fileSize: stagedFile.file.size,
+            userId: 'demo-user'
+          })
+        });
 
-        if (!uploadResponse.ok) {
-          throw new Error(`Upload failed: ${uploadResponse.statusText}`)
+        if (!presignedResponse.ok) {
+          const error = await presignedResponse.json();
+          throw new Error(`Failed to get upload URL for ${stagedFile.name}: ${error.error}`);
         }
 
-        const uploadResult = await uploadResponse.json()
-        workflowIds.push(uploadResult.workflowId)
+        const { presignedUrl, fileUrl, s3Key, fileId } = await presignedResponse.json();
+        
+        // Step 2: Upload directly to S3
+        const s3UploadResponse = await fetch(presignedUrl, {
+          method: 'PUT',
+          body: stagedFile.file,
+          headers: {
+            'Content-Type': stagedFile.file.type
+          }
+        });
+
+        if (!s3UploadResponse.ok) {
+          throw new Error(`S3 upload failed for ${stagedFile.name}: ${s3UploadResponse.status} ${s3UploadResponse.statusText}`);
+        }
+
+        // Step 3: Notify API that upload is complete
+        const completeResponse = await fetch('/api/upload/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileUrl,
+            fileName: stagedFile.name,
+            s3Key,
+            fileId,
+            userId: 'demo-user',
+            fileSize: stagedFile.file.size
+          })
+        });
+
+        if (!completeResponse.ok) {
+          const error = await completeResponse.json();
+          throw new Error(`Failed to complete upload for ${stagedFile.name}: ${error.error}`);
+        }
+
+        const uploadResult = await completeResponse.json();
+        workflowIds.push(uploadResult.workflow_id)
 
         const uploadSuccessMessage: Message = {
           id: `${Date.now()}-${Math.random()}`,
           type: "agent-step",
-          content: `✅ ${stagedFile.name} uploaded successfully. Analysis workflow started (ID: ${uploadResult.workflowId.slice(0, 8)}...)`,
+          content: `✅ ${stagedFile.name} uploaded successfully. Analysis workflow started (ID: ${uploadResult.workflow_id.slice(0, 8)}...)`,
           timestamp: new Date(),
           agent: "Manager",
           agentId: "manager",

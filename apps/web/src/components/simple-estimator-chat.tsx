@@ -573,7 +573,7 @@ export default function SimpleEstimatorChat() {
               } else if (response.status === 401) {
                 errorMessage = 'Authentication failed. Please check your API key.';
               } else if (response.status === 413) {
-                errorMessage = 'File too large. Please reduce file size or compress images (max recommended: 100MB per file).';
+                errorMessage = 'File too large. Please reduce file size or compress images (max recommended: 500MB per file with direct S3 uploads).';
               } else {
                 errorMessage = `Server error: ${response.status}`;
               }
@@ -583,7 +583,7 @@ export default function SimpleEstimatorChat() {
             if (response.status === 401) {
               errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
             } else if (response.status === 413) {
-              errorMessage = 'File too large. Please reduce file size or compress images (max recommended: 100MB per file).';
+              errorMessage = 'File too large. Please reduce file size or compress images (max recommended: 500MB per file with direct S3 uploads).';
             } else {
               errorMessage = `Server error: ${response.status}`;
             }

@@ -138,10 +138,12 @@ if lsof -Pi :3000 -sTCP:LISTEN -t >/dev/null ; then
     
     # Test endpoints
     test_url "http://localhost:3000" "Frontend"
-    test_url "http://localhost:3000/api/upload" "API"
+    test_url "http://localhost:3000/api/upload/presigned-url" "Upload API"
     
-    # Test API response
-    API_RESPONSE=$(curl -s http://localhost:3000/api/upload 2>/dev/null)
+    # Test the upload API functionality
+    echo "Testing upload API endpoints..."
+    API_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d '{"fileName":"test.pdf","fileType":"application/pdf","fileSize":1024}' http://localhost:3000/api/upload/presigned-url 2>/dev/null)
+    
     if echo "$API_RESPONSE" | grep -q "PIP AI Unified API"; then
         echo -e "   ${GREEN}✅ API response valid${NC}"
     else

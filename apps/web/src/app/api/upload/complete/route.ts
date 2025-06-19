@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // Configure API route
 export const runtime = 'nodejs';
 export const maxDuration = 60; // 1 minute for workflow initiation
-export const maxRequestSize = '100mb';
+export const maxRequestSize = '10mb'; // Only handling metadata, not files
 export const dynamic = 'force-dynamic';
 
 const config = {
