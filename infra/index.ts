@@ -1,7 +1,7 @@
 import * as aws from "@pulumi/aws";
 // import * as vercel from "@pulumiverse/vercel";
-import * as upstash from "@upstash/pulumi";
 import * as random from "@pulumi/random";
+import * as upstash from "@upstash/pulumi";
 
 // =============================================================================
 // PIP AI Infrastructure - Complete Stack
