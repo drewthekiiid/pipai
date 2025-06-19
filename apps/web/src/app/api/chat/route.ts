@@ -1,9 +1,33 @@
-import { createCanvas } from 'canvas';
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import OpenAI from 'openai';
 import { PDFDocument } from 'pdf-lib';
 import pdfParse from 'pdf-parse';
-import { z } from 'zod';
+
+// Conditional canvas import for serverless compatibility
+interface CanvasContext {
+  fillStyle: string;
+  fillRect: (x: number, y: number, width: number, height: number) => void;
+  fillText: (text: string, x: number, y: number) => void;
+  font: string;
+  textAlign: string;
+  measureText: (text: string) => { width: number };
+}
+
+interface Canvas {
+  getContext: (type: string) => CanvasContext;
+  toDataURL: (type: string) => string;
+}
+
+let createCanvas: ((width: number, height: number) => Canvas) | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const canvasModule = require('canvas');
+  createCanvas = canvasModule.createCanvas;
+  console.log('✅ Canvas module loaded successfully');
+} catch {
+  console.log('⚠️ Canvas not available in serverless environment, using text-only fallback');
+}
 
 // Configure API route to handle larger payloads for construction documents
 export const runtime = 'nodejs';
@@ -315,7 +339,7 @@ POLLUTION & WASTE CONTROL EQUIPMENT
 ELECTRICAL POWER GENERATION
 48140, 48150`;
 
-// PDF to Image conversion function
+// PDF to Image conversion function with serverless fallback
 async function convertPdfToImages(pdfBuffer: Buffer, fileName: string): Promise<Array<{name: string, type: string, data: string}>> {
   try {
     console.log(`🔄 Converting PDF "${fileName}" to images...`);
@@ -336,7 +360,43 @@ async function convertPdfToImages(pdfBuffer: Buffer, fileName: string): Promise<
     
     const images: Array<{name: string, type: string, data: string}> = [];
     
-    // Split extracted text into pages (rough estimation)
+    // Check if canvas is available for image generation
+    if (!createCanvas) {
+      console.log('📝 Canvas unavailable - using text-only fallback for serverless environment');
+      
+      // Fallback: Create text-based representations
+      const textPerPage = extractedText ? extractedText.split(/\f|\n\n\n/).filter(text => text.trim()) : [];
+      
+      for (let i = 0; i < pageCount; i++) {
+        const pageText = textPerPage[i] || `Page ${i + 1} content from ${fileName}`;
+        const textRepresentation = `CONSTRUCTION DOCUMENT - ${fileName}
+Page ${i + 1} of ${pageCount}
+
+📐 CONSTRUCTION DOCUMENT CONTENT:
+${pageText.substring(0, 2000)}${pageText.length > 2000 ? '\n\n... [content continues]' : ''}
+
+📋 Plan drawings and specifications detected
+🔍 Visual elements require GPT-4o Vision analysis  
+📏 Dimensions, symbols, and technical drawings
+⚡ Processing with advanced AI vision capabilities
+
+Converted for GPT-4o Analysis | EstimAItor ${new Date().toLocaleDateString()}`;
+        
+        // Convert text to base64 for consistent API
+        const base64Data = Buffer.from(textRepresentation).toString('base64');
+        
+        images.push({
+          name: `${fileName.replace('.pdf', '')}_page_${i + 1}_text.txt`,
+          type: 'text/plain',
+          data: base64Data
+        });
+        
+        console.log(`✅ Created text representation for page ${i + 1}/${pageCount} of ${fileName}`);
+      }
+      
+      return images;
+    }
+    
     const textPerPage = extractedText ? extractedText.split(/\f|\n\n\n/).filter(text => text.trim()) : [];
     
     // For each page in the PDF
@@ -423,7 +483,7 @@ async function convertPdfToImages(pdfBuffer: Buffer, fileName: string): Promise<
             '⚡ Processing with advanced AI vision capabilities'
           ];
           
-          indicators.forEach((indicator, index) => {
+          indicators.forEach((indicator) => {
             if (yPosition < canvasHeight - 100 * scale) {
               ctx.fillText(indicator, margin, yPosition);
               yPosition += lineHeight * 1.5;
@@ -460,8 +520,8 @@ async function convertPdfToImages(pdfBuffer: Buffer, fileName: string): Promise<
     
     console.log(`🎯 Successfully converted ${images.length}/${pageCount} pages from ${fileName}`);
     
-    // If we have extracted text, also create a text summary "page"
-    if (extractedText && extractedText.length > 100) {
+    // If we have extracted text and canvas is available, also create a text summary "page"
+    if (extractedText && extractedText.length > 100 && createCanvas) {
       try {
         const summaryCanvas = createCanvas(800 * 2, 600 * 2);
         const summaryCtx = summaryCanvas.getContext('2d');
@@ -488,8 +548,8 @@ async function convertPdfToImages(pdfBuffer: Buffer, fileName: string): Promise<
         const lines = textPreview.split('\n');
         let y = 120 * 2;
         
-        lines.forEach((line, index) => {
-          if (y < 550 * 2 && index < 25) { // Limit lines to prevent overflow
+        lines.forEach((line) => {
+          if (y < 550 * 2) {
             summaryCtx.fillText(line.substring(0, 100), 40 * 2, y);
             y += 20 * 2;
           }
@@ -651,7 +711,7 @@ export async function POST(request: NextRequest) {
 
     // Handle OpenAI API errors specifically
     if (error && typeof error === 'object' && 'status' in error) {
-      const apiError = error as any;
+      const apiError = error as { status?: number; message?: string };
       if (apiError.status === 401) {
         return NextResponse.json(
           { 
@@ -745,7 +805,7 @@ async function analyzeConstructionDocuments(client: OpenAI, files: Array<{name: 
 export async function GET() {
   try {
     // Check if OpenAI client can be initialized
-    const client = getOpenAIClient();
+    getOpenAIClient();
     
     return NextResponse.json({
       status: 'EstimAItor Chat API is running',

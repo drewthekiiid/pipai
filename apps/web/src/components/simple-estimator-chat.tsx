@@ -412,7 +412,7 @@ export default function SimpleEstimatorChat() {
   }
 
   // Process files directly with OpenAI Vision API - bypass Vercel 4.5MB limit
-  const processFilesDirectly = async (files: StagedFile[], message: string): Promise<any> => {
+  const processFilesDirectly = async (files: StagedFile[], message: string): Promise<{ id: string; message: string; timestamp: string; type: string; analysisType?: string }> => {
     // Convert files to base64 for OpenAI API (client-side only)
     const filesData = await Promise.all(
       files.map(async (stagedFile) => {
@@ -574,7 +574,7 @@ export default function SimpleEstimatorChat() {
                 errorMessage = `Server error: ${response.status}`;
               }
             }
-          } catch (parseError) {
+          } catch {
             // If parsing fails, use status-based message
             if (response.status === 401) {
               errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
@@ -677,7 +677,7 @@ export default function SimpleEstimatorChat() {
             </h1>
 
             <p className="text-slate-600 dark:text-slate-400 mb-8 text-lg font-light">
-              Upload construction plan <strong>images</strong> (JPG/PNG) and I'll analyze them to detect trades, generate scope of work, and create takeoffs in CSI order.
+              Upload construction plan <strong>images</strong> (JPG/PNG) and I&apos;ll analyze them to detect trades, generate scope of work, and create takeoffs in CSI order.
             </p>
 
                           <Button
@@ -839,4 +839,4 @@ export default function SimpleEstimatorChat() {
       </div>
     </div>
   )
-} 
+}    
