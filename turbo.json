@@ -1,14 +1,67 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  "globalEnv": [
+    "NODE_ENV",
+    "VERCEL",
+    "VERCEL_ENV",
+    "CI"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      "env": [
+        "OPENAI_API_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_REGION",
+        "AWS_S3_BUCKET_NAME",
+        "S3_BUCKET_NAME",
+        "TEMPORAL_API_KEY",
+        "TEMPORAL_ADDRESS",
+        "TEMPORAL_NAMESPACE",
+        "TEMPORAL_TASK_QUEUE",
+        "UPSTASH_REDIS_REST_URL",
+        "UPSTASH_REDIS_REST_TOKEN",
+        "DATABASE_URL",
+        "REDIS_URL",
+        "NEXT_PUBLIC_APP_URL",
+        "NEXT_PUBLIC_API_URL",
+        "NEXT_PUBLIC_ENABLE_SMARTSHEET",
+        "NEXT_PUBLIC_ENABLE_ADMIN_PANEL",
+        "NEXT_PUBLIC_ENABLE_ANALYTICS",
+        "NEXT_PUBLIC_ENABLE_DARK_MODE",
+        "NEXT_PUBLIC_DEBUG_MODE",
+        "NEXT_PUBLIC_LOG_LEVEL",
+        "NEXT_PUBLIC_ENABLE_AGENT_PROGRESS",
+        "NEXT_PUBLIC_ENABLE_SESSION_RESULTS",
+        "NEXT_PUBLIC_ENABLE_BATCH_PROCESSING",
+        "NEXT_PUBLIC_ENABLE_FILE_STAGING",
+        "NEXT_PUBLIC_ENABLE_WORKFLOW_CONTROLS",
+        "NEXT_PUBLIC_MAX_FILE_SIZE",
+        "NEXT_PUBLIC_ALLOWED_FILE_TYPES"
+      ]
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "env": [
+        "OPENAI_API_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_REGION",
+        "AWS_S3_BUCKET_NAME",
+        "S3_BUCKET_NAME",
+        "TEMPORAL_API_KEY",
+        "TEMPORAL_ADDRESS",
+        "TEMPORAL_NAMESPACE",
+        "TEMPORAL_TASK_QUEUE",
+        "UPSTASH_REDIS_REST_URL",
+        "UPSTASH_REDIS_REST_TOKEN",
+        "DATABASE_URL",
+        "REDIS_URL"
+      ]
     },
     "lint": {
       "dependsOn": ["^build"]
