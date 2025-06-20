@@ -5,7 +5,7 @@
 
 import 'dotenv/config';
 import { Worker, NativeConnection } from '@temporalio/worker';
-import * as activities from './activities.js';
+import * as activities from '@pipai/worker/activities.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import dotenv from 'dotenv';
