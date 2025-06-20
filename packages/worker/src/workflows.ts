@@ -4,7 +4,7 @@
  */
 
 import { defineSignal, defineQuery, setHandler, condition, proxyActivities, log, sleep } from '@temporalio/workflow';
-import type * as activities from '@pipai/worker/activities';
+import type * as activities from './activities';
 
 // Configure activity proxies with timeouts
 const { 
