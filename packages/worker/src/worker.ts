@@ -3,11 +3,11 @@
  * Production-ready worker with error handling, metrics, and graceful shutdown
  */
 
-import { Worker, NativeConnection } from '@temporalio/worker';
-import * as activities from './activities.js';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { NativeConnection, Worker } from '@temporalio/worker';
 import dotenv from 'dotenv';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
+import * as activities from './activities.js';
 
 // Load environment variables from project root - MUST be first to override defaults
 dotenv.config({ path: '../../.env.local' });
@@ -62,9 +62,9 @@ async function createConnection(): Promise<NativeConnection> {
 
     // Configure TLS and authentication for Temporal Cloud
     if (config.temporal.address.includes('temporal.io')) {
-      connectionOptions.tls = {}; // Empty object, not true - matches upload API pattern
+      connectionOptions.tls = true; // Use boolean true for API key authentication
       connectionOptions.apiKey = config.temporal.apiKey;
-      console.log('   ✅ Using Temporal Cloud with TLS {} and API key');
+      console.log('   ✅ Using Temporal Cloud with TLS and API key authentication');
     }
 
     const connection = await NativeConnection.connect(connectionOptions);
@@ -87,7 +87,7 @@ async function createWorker(connection: NativeConnection): Promise<Worker> {
       connection,
       namespace: config.temporal.namespace,
       taskQueue: config.worker.taskQueue,
-      workflowsPath: fileURLToPath(new URL('./workflows.ts', import.meta.url)),
+      workflowsPath: fileURLToPath(new URL('./workflows.js', import.meta.url)),
       activities,
       // Conservative settings for Temporal Cloud
       maxConcurrentActivityTaskExecutions: 1,
