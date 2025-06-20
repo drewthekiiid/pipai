@@ -2,19 +2,19 @@
  * PIP AI Temporal Worker
  * Production-ready worker with error handling, metrics, and graceful shutdown
  */
-import 'dotenv/config';
-import { Worker, NativeConnection } from '@temporalio/worker';
-import * as activities from './activities.js';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import { NativeConnection, Worker } from '@temporalio/worker';
 import dotenv from 'dotenv';
-// Load environment variables from project root
-dotenv.config({ path: '../../.env' });
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
+import * as activities from './activities.js';
+// Load environment variables from project root - MUST be first to override defaults
+dotenv.config({ path: '../../.env.local' });
 // Debug: log environment variables
 console.log('🔍 Environment Debug:');
 console.log(`   TEMPORAL_ADDRESS: ${process.env.TEMPORAL_ADDRESS}`);
 console.log(`   TEMPORAL_NAMESPACE: ${process.env.TEMPORAL_NAMESPACE}`);
 console.log(`   TEMPORAL_API_KEY: ${process.env.TEMPORAL_API_KEY ? '***' : 'NOT_SET'}`);
+console.log(`   Dotenv loaded from: ../../.env.local`);
 // ES module compatibility
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -53,18 +53,9 @@ async function createConnection() {
         };
         // Configure TLS and authentication for Temporal Cloud
         if (config.temporal.address.includes('temporal.io')) {
-            connectionOptions.tls = {}; // Empty TLS config for standard TLS
+            connectionOptions.tls = true; // Use boolean true for API key authentication
             connectionOptions.apiKey = config.temporal.apiKey;
-            // Add gRPC channel args for Temporal Cloud compatibility
-            connectionOptions.channelArgs = {
-                'grpc.keepalive_time_ms': 30000,
-                'grpc.keepalive_timeout_ms': 5000,
-                'grpc.keepalive_permit_without_calls': true,
-                'grpc.http2.max_pings_without_data': 0,
-                'grpc.http2.min_time_between_pings_ms': 10000,
-                'grpc.http2.min_ping_interval_without_data_ms': 300000,
-            };
-            console.log('   ✅ Using API key authentication with enhanced gRPC config');
+            console.log('   ✅ Using Temporal Cloud with TLS and API key authentication');
         }
         const connection = await NativeConnection.connect(connectionOptions);
         console.log('✅ Connected to Temporal successfully');
@@ -83,7 +74,7 @@ async function createWorker(connection) {
             connection,
             namespace: config.temporal.namespace,
             taskQueue: config.worker.taskQueue,
-            workflowsPath: fileURLToPath(new URL('./workflows.ts', import.meta.url)),
+            workflowsPath: fileURLToPath(new URL('./workflows.js', import.meta.url)),
             activities,
             // Conservative settings for Temporal Cloud
             maxConcurrentActivityTaskExecutions: 1,

@@ -253,11 +253,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    // Validate file size (100MB limit)
-    if (file.size > 100 * 1024 * 1024) {
+    // Validate file size (10MB limit for direct upload via Vercel function)
+    // For larger files, use /api/upload/presigned endpoint
+    if (file.size > 10 * 1024 * 1024) {
       return NextResponse.json({ 
-        error: 'File too large. Maximum size is 100MB.' 
-      }, { status: 400 });
+        error: 'File too large for direct upload. Maximum size is 10MB. For larger files, use the presigned upload endpoint.',
+        suggestion: 'Use /api/upload/presigned for files larger than 10MB'
+      }, { status: 413 });
     }
 
     if (!file.name) {
