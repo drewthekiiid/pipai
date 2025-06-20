@@ -46,3 +46,4 @@ fly.toml
 .env
 .env.local
 .vercel
+*.env.backup
