@@ -3,14 +3,13 @@
  * Production-ready worker with error handling, metrics, and graceful shutdown
  */
 
-import 'dotenv/config';
 import { Worker, NativeConnection } from '@temporalio/worker';
 import * as activities from './activities.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import dotenv from 'dotenv';
 
-// Load environment variables from project root
+// Load environment variables from project root - MUST be first to override defaults
 dotenv.config({ path: '../../.env.local' });
 
 // Debug: log environment variables
@@ -63,9 +62,9 @@ async function createConnection(): Promise<NativeConnection> {
 
     // Configure TLS and authentication for Temporal Cloud
     if (config.temporal.address.includes('temporal.io')) {
-      connectionOptions.tls = true;
+      connectionOptions.tls = {}; // Empty object, not true - matches upload API pattern
       connectionOptions.apiKey = config.temporal.apiKey;
-      console.log('   ✅ Using Temporal Cloud with TLS and API key');
+      console.log('   ✅ Using Temporal Cloud with TLS {} and API key');
     }
 
     const connection = await NativeConnection.connect(connectionOptions);
