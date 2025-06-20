@@ -11,13 +11,14 @@ import { dirname, join } from 'path';
 import dotenv from 'dotenv';
 
 // Load environment variables from project root
-dotenv.config({ path: '../../.env' });
+dotenv.config({ path: '../../.env.local' });
 
 // Debug: log environment variables
 console.log('🔍 Environment Debug:');
 console.log(`   TEMPORAL_ADDRESS: ${process.env.TEMPORAL_ADDRESS}`);
 console.log(`   TEMPORAL_NAMESPACE: ${process.env.TEMPORAL_NAMESPACE}`);
 console.log(`   TEMPORAL_API_KEY: ${process.env.TEMPORAL_API_KEY ? '***' : 'NOT_SET'}`);
+console.log(`   Dotenv loaded from: ../../.env.local`);
 
 // ES module compatibility
 const __filename = fileURLToPath(import.meta.url);
@@ -62,20 +63,9 @@ async function createConnection(): Promise<NativeConnection> {
 
     // Configure TLS and authentication for Temporal Cloud
     if (config.temporal.address.includes('temporal.io')) {
-      connectionOptions.tls = {}; // Empty TLS config for standard TLS
+      connectionOptions.tls = true;
       connectionOptions.apiKey = config.temporal.apiKey;
-      
-      // Add gRPC channel args for Temporal Cloud compatibility
-      connectionOptions.channelArgs = {
-        'grpc.keepalive_time_ms': 30000,
-        'grpc.keepalive_timeout_ms': 5000,
-        'grpc.keepalive_permit_without_calls': true,
-        'grpc.http2.max_pings_without_data': 0,
-        'grpc.http2.min_time_between_pings_ms': 10000,
-        'grpc.http2.min_ping_interval_without_data_ms': 300000,
-      };
-      
-      console.log('   ✅ Using API key authentication with enhanced gRPC config');
+      console.log('   ✅ Using Temporal Cloud with TLS and API key');
     }
 
     const connection = await NativeConnection.connect(connectionOptions);
