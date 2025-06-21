@@ -176,4 +176,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-} 
+} // Updated env vars
