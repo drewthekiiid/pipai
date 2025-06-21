@@ -86,10 +86,34 @@ export async function GET(
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
+      let isClosed = false;
+      let pollInterval: NodeJS.Timeout | null = null;
       
+      // Safe sendEvent that checks if controller is still open
       const sendEvent = (event: string, data: Record<string, unknown>) => {
-        const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-        controller.enqueue(encoder.encode(message));
+        if (isClosed) return;
+        try {
+          const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+          controller.enqueue(encoder.encode(message));
+        } catch (error) {
+          console.error('Error sending SSE event:', error);
+          cleanup();
+        }
+      };
+
+      // Cleanup function to properly close everything
+      const cleanup = () => {
+        if (isClosed) return;
+        isClosed = true;
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+        try {
+          controller.close();
+        } catch (error) {
+          // Controller might already be closed
+        }
       };
 
       try {
@@ -109,7 +133,9 @@ export async function GET(
         let pollCount = 0;
         const maxPolls = 300; // 5 minutes max
         
-        const pollInterval = setInterval(async () => {
+        pollInterval = setInterval(async () => {
+          if (isClosed) return;
+          
           pollCount++;
           
           try {
@@ -181,8 +207,7 @@ export async function GET(
                 });
               }
               
-              clearInterval(pollInterval);
-              controller.close();
+              cleanup();
               return;
             }
             
@@ -194,8 +219,7 @@ export async function GET(
                 timestamp: new Date().toISOString()
               });
               
-              clearInterval(pollInterval);
-              controller.close();
+              cleanup();
               return;
             }
 
@@ -217,8 +241,7 @@ export async function GET(
                 timestamp: new Date().toISOString()
               });
               
-              clearInterval(pollInterval);
-              controller.close();
+              cleanup();
             }
             
           } catch (error) {
@@ -228,6 +251,11 @@ export async function GET(
               error: error instanceof Error ? error.message : 'Unknown error',
               timestamp: new Date().toISOString()
             });
+            
+            // For workflow not found errors, close the stream
+            if (error instanceof Error && error.message.includes('workflow not found')) {
+              cleanup();
+            }
           }
         }, 800); // Poll more frequently for better UX
 
@@ -238,7 +266,7 @@ export async function GET(
           error: error instanceof Error ? error.message : 'Failed to connect to workflow',
           timestamp: new Date().toISOString()
         });
-        controller.close();
+        cleanup();
       }
     },
   });
