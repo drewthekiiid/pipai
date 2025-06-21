@@ -7,9 +7,5 @@
     "apps/web/src/app/api/**/*.ts": {
       "maxDuration": 60
     }
-  },
-  "regions": ["iad1"],
-  "limits": {
-    "duration": 60000
   }
 }
