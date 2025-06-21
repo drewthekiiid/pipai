@@ -1,4 +1,4 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   // Allow build to ignore type errors and ESLint errors in production
@@ -8,16 +8,23 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // Enable experimental features for large uploads
-  experimental: {
-    largePageDataBytes: 128 * 1024, // 128KB
-  },
-  // Configure for Vercel deployment with complete dynamic rendering
+  
+  // Transpile our workspace packages
+  transpilePackages: ['@pip-ai/shared'],
+  
+  // Use standalone output for Vercel deployment
   output: 'standalone',
+  
+  // CRITICAL: Disable ALL static optimizations to avoid Html import errors
+  experimental: {
+    workerThreads: false,
+  },
+  
+  // Disable caching and static optimization
+  generateBuildId: () => Math.random().toString(36),
+  
+  // Force no trailing slash
   trailingSlash: false,
-  // This is the key fix for Next.js 15 - disable static page generation entirely
-  outputFileTracingExcludes: {},
-  /* config options here */
-};
+}
 
-export default nextConfig;
+export default nextConfig

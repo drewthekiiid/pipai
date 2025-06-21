@@ -1,14 +1,8 @@
 // Force dynamic rendering to prevent static generation issues
+import { PipAIUploadApp } from '../../../components/pip-ai-upload-app';
 
 export const dynamic = 'force-dynamic';
 
-
-
 export default function SimpleStreamingPage() {
-  return (
-    <div className="container mx-auto py-8">
-      <h1 className="text-3xl font-bold">Simple Streaming Demo</h1>
-      <p className="text-gray-600 mt-4">This demo page is under construction.</p>
-    </div>
-  );
+  return <PipAIUploadApp />;
 }

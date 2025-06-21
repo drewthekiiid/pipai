@@ -2,13 +2,12 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 
-// Force entire app to be dynamic - this is critical for Next.js 15
+// CRITICAL: Force all pages to be dynamic to avoid Html import error during static generation
 export const dynamic = 'force-dynamic';
 export const dynamicParams = true;
-export const revalidate = false;
+export const revalidate = 0;
 
 const inter = Inter({
-  variable: "--font-inter",
   subsets: ["latin"],
 });
 
@@ -24,9 +23,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${inter.variable} antialiased`}
-      >
+      <body className={inter.className}>
         {children}
       </body>
     </html>
