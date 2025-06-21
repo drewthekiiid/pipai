@@ -2,9 +2,10 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm turbo build --filter=web",
   "framework": "nextjs",
-  "outputDirectory": "apps/web/.next",
+  "rootDirectory": "apps/web",
+  "outputDirectory": ".next",
   "functions": {
-    "apps/web/src/app/api/**/*.ts": {
+    "src/app/api/**/*.ts": {
       "maxDuration": 60
     }
   }
