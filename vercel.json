@@ -4,7 +4,7 @@
   "framework": "nextjs",
   "outputDirectory": "apps/web/.next",
   "functions": {
-    "apps/web/src/app/api/**/*.ts": {
+    "apps/web/.next/server/app/api/**": {
       "maxDuration": 60
     }
   }
