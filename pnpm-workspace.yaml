@@ -4,16 +4,3 @@ packages:
 
 # Automatically allow all build scripts (bypasses approval prompts)
 dangerouslyAllowAllBuilds: true
-
-onlyBuiltDependencies:
-  - "@prisma/client"
-  - "@prisma/engines"
-  - "@swc/core"
-  - "@temporalio/core-bridge"
-  - "@tailwindcss/oxide"
-  - "aws-sdk"
-  - "esbuild"
-  - "protobufjs"
-  - "sharp"
-  - "unrs-resolver"
-  - prisma
