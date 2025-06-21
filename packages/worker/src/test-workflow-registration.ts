@@ -3,10 +3,10 @@
  * Test script to verify workflow registration
  */
 
-import 'dotenv/config';
-import { Worker, NativeConnection } from '@temporalio/worker';
-import { fileURLToPath } from 'url';
+import { NativeConnection, Worker } from '@temporalio/worker';
 import { config } from 'dotenv';
+import 'dotenv/config';
+import { fileURLToPath } from 'url';
 
 // Load environment variables from project root
 config({ path: '../../../.env' });
@@ -19,23 +19,22 @@ console.log('🧪 Testing Workflow Registration...');
 async function testWorkflowRegistration() {
   try {
     // Create connection
-    const connectionOptions: any = {
-      address: process.env.TEMPORAL_ADDRESS || 'localhost:7233',
-    };
+    const address = process.env.TEMPORAL_ADDRESS || 'us-east-1.aws.api.temporal.io:7233';
+    const namespace = process.env.TEMPORAL_NAMESPACE || 'pip-ai.ts7wf';
+    const apiKey = process.env.TEMPORAL_API_KEY;
 
-    if (connectionOptions.address.includes('temporal.io')) {
-      connectionOptions.tls = {};
-      connectionOptions.apiKey = process.env.TEMPORAL_API_KEY;
-    }
-
-    console.log(`🔌 Connecting to: ${connectionOptions.address}`);
-    const connection = await NativeConnection.connect(connectionOptions);
+    console.log(`🔌 Connecting to: ${address}`);
+    const connection = await NativeConnection.connect({
+      address,
+      tls: apiKey ? {} : undefined,
+      apiKey,
+    });
     console.log('✅ Connected successfully');
 
     // Create minimal worker to test workflow registration
     const worker = await Worker.create({
       connection,
-      namespace: process.env.TEMPORAL_NAMESPACE || 'default',
+      namespace,
       taskQueue: 'test-queue',
       workflowsPath: fileURLToPath(new URL('./workflows.js', import.meta.url)),
       activities: {}, // No activities for this test

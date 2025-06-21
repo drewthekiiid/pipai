@@ -68,21 +68,28 @@ async function getTemporalClient(): Promise<TemporalClient> {
   if (!temporalClient) {
     console.log('🔗 Creating Temporal client...');
 
-    const connectionOptions: Record<string, unknown> = {
+    const connectionOptions: any = {
       address: config.temporal.address,
     };
 
     // Only add TLS and API key for Temporal Cloud
     if (config.temporal.address.includes('temporal.io')) {
-      connectionOptions.tls = {};
+      connectionOptions.tls = true;  // TLS is REQUIRED for API key authentication
       connectionOptions.apiKey = config.temporal.apiKey;
       console.log('   Using Temporal Cloud with TLS and API key');
     } else {
       console.log('   Using local Temporal server');
     }
 
+    console.log('🔧 Connection options:', {
+      address: connectionOptions.address,
+      tls: connectionOptions.tls,
+      apiKey: connectionOptions.apiKey ? `${connectionOptions.apiKey.substring(0, 20)}...` : 'missing'
+    });
+
+    const connection = await Connection.connect(connectionOptions);
     temporalClient = new TemporalClient({
-      connection: await Connection.connect(connectionOptions),
+      connection,
       namespace: config.temporal.namespace,
     });
 
@@ -153,8 +160,17 @@ async function uploadToS3(file: File, key: string): Promise<string> {
 }
 
 async function startAnalysisWorkflow(fileUrl: string, fileName: string, userId: string, s3Key: string): Promise<string> {
+  // Force fresh client to avoid caching issues
+  temporalClient = null;
   const client = await getTemporalClient();
   const workflowId = `analyze-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  console.log(`🔧 Creating workflow with config:`, {
+    workflowType: 'analyzeDocumentWorkflow',
+    taskQueue: config.temporal.taskQueue,
+    workflowId,
+    namespace: config.temporal.namespace
+  });
 
   const analysisInput: AnalysisInput = {
     fileUrl,
@@ -180,7 +196,8 @@ async function startAnalysisWorkflow(fileUrl: string, fileName: string, userId: 
     return workflowId;
   } catch (error) {
     console.error('❌ Failed to start workflow:', error);
-    throw error;
+    console.error('❌ Error details:', JSON.stringify(error, null, 2));
+    throw new Error(`Failed to start Workflow: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -207,10 +224,11 @@ export async function GET() {
 
   // Test Temporal connection  
   try {
-    if (temporalClient) {
+    if (config.temporal.apiKey) {
+      await getTemporalClient();
       healthStatus.temporal = "healthy";
     } else {
-      healthStatus.temporal = "not_connected";
+      healthStatus.temporal = "not_configured";
     }
   } catch (error) {
     healthStatus.temporal = `unhealthy: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -237,6 +255,7 @@ export async function GET() {
     version: "2.0.0", 
     status: overallHealthy ? "healthy" : "degraded",
     services: healthStatus,
+    temporalApiKey: config.temporal.apiKey ? `${config.temporal.apiKey.substring(0, 20)}...` : 'missing',
     timestamp: new Date().toISOString(),
   });
 }
@@ -253,13 +272,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    // Validate file size (10MB limit for direct upload via Vercel function)
-    // For larger files, use /api/upload/presigned endpoint
-    if (file.size > 10 * 1024 * 1024) {
+    // Validate file size (100MB limit)
+    if (file.size > 100 * 1024 * 1024) {
       return NextResponse.json({ 
-        error: 'File too large for direct upload. Maximum size is 10MB. For larger files, use the presigned upload endpoint.',
-        suggestion: 'Use /api/upload/presigned for files larger than 10MB'
-      }, { status: 413 });
+        error: 'File too large. Maximum size is 100MB.' 
+      }, { status: 400 });
     }
 
     if (!file.name) {

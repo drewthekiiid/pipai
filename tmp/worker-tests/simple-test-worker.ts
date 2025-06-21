@@ -16,7 +16,7 @@ async function run(): Promise<void> {
   console.log('🚀 Simple Test Worker Starting...');
   
   const address = process.env.TEMPORAL_ADDRESS || 'us-east-1.aws.api.temporal.io:7233';
-  const namespace = process.env.TEMPORAL_NAMESPACE || 'pipai-fresh-1750378821.ts7wf';
+  const namespace = process.env.TEMPORAL_NAMESPACE || 'pip-ai.ts7wf';
   const apiKey = process.env.TEMPORAL_API_KEY;
   
   console.log(`📍 Address: ${address}`);

@@ -4,13 +4,14 @@
  */
 
 import { Context } from '@temporalio/activity';
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import * as crypto from 'crypto';
 import { config } from 'dotenv';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 // Load environment variables
-config();
+config({ path: '../../.env' });
+config({ path: '../../.env.local', override: true });
 
 // Activity context helper
 function getActivityInfo() {
@@ -92,18 +93,104 @@ export async function downloadFileActivity(input: DownloadFileInput): Promise<Do
     const tempDir = path.join('/tmp', input.analysisId);
     await fs.mkdir(tempDir, { recursive: true });
 
-    // For demo purposes, simulate file download
-    // In production, this would fetch from S3, Vercel Blob, etc.
-    const fileName = path.basename(input.fileUrl) || 'document.txt';
-    const localPath = path.join(tempDir, fileName);
+    let fileContent: string;
+    let fileName: string;
     
-    // Mock file content for testing
-    const mockContent = `Mock file content for ${fileName}\nUser: ${input.userId}\nAnalysis: ${input.analysisId}`;
-    await fs.writeFile(localPath, mockContent);
+    if (input.fileUrl.startsWith('http')) {
+      // Check if this is an S3 URL
+      if (input.fileUrl.includes('.s3.') || input.fileUrl.includes('s3.amazonaws.com')) {
+        // Handle S3 download with AWS SDK
+        console.log(`[${activityId}] Detected S3 URL, using AWS SDK for download`);
+        
+        try {
+          // Parse S3 URL to extract bucket and key
+          const s3Url = new URL(input.fileUrl);
+          let bucketName: string;
+          let objectKey: string;
+          
+          if (s3Url.hostname.includes('.s3.')) {
+            // Format: https://bucket-name.s3.region.amazonaws.com/path/to/file
+            bucketName = s3Url.hostname.split('.')[0];
+            objectKey = s3Url.pathname.slice(1); // Remove leading slash
+          } else {
+            // Format: https://s3.region.amazonaws.com/bucket-name/path/to/file
+            const pathParts = s3Url.pathname.slice(1).split('/');
+            bucketName = pathParts[0];
+            objectKey = pathParts.slice(1).join('/');
+          }
+          
+          console.log(`[${activityId}] S3 Details - Bucket: ${bucketName}, Key: ${objectKey}`);
+          
+          // Import AWS SDK
+          const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+          
+          // Create S3 client for AWS (no endpoint needed - auto-resolved)
+          const s3Client = new S3Client({
+            region: process.env.AWS_REGION || 'us-east-1',
+            credentials: {
+              accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+              secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+            },
+            // AWS S3 uses virtual-hosted-style by default (no forcePathStyle needed)
+          });
+          
+          // Download object from S3
+          const command = new GetObjectCommand({
+            Bucket: bucketName,
+            Key: objectKey,
+          });
+          
+          const response = await s3Client.send(command);
+          if (!response.Body) {
+            throw new Error('No file content received from S3');
+          }
+          
+          // Convert AWS SDK stream to buffer
+          const chunks: Buffer[] = [];
+          
+          // Handle the stream properly for AWS SDK
+          if (response.Body instanceof Buffer) {
+            fileContent = response.Body.toString();
+          } else {
+            // Handle readable stream
+            const stream = response.Body as any;
+            for await (const chunk of stream) {
+              chunks.push(Buffer.from(chunk));
+            }
+            fileContent = Buffer.concat(chunks).toString();
+          }
+          
+          fileName = path.basename(objectKey) || 'document.txt';
+          
+          console.log(`[${activityId}] S3 download successful: ${fileContent.length} characters`);
+          
+        } catch (s3Error) {
+          console.error(`[${activityId}] S3 download failed:`, s3Error);
+          throw new Error(`Failed to download from S3: ${s3Error instanceof Error ? s3Error.message : 'Unknown S3 error'}`);
+        }
+      } else {
+        // Download from regular HTTP URL
+        const response = await fetch(input.fileUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to download file: ${response.statusText}`);
+        }
+        
+        fileName = path.basename(input.fileUrl) || 'document.txt';
+        const arrayBuffer = await response.arrayBuffer();
+        fileContent = Buffer.from(arrayBuffer).toString();
+      }
+    } else {
+      // Local file for testing
+      fileName = path.basename(input.fileUrl) || 'document.txt';
+      fileContent = `Mock file content for ${fileName}\nUser: ${input.userId}\nAnalysis: ${input.analysisId}`;
+    }
+    
+    const localPath = path.join(tempDir, fileName);
+    await fs.writeFile(localPath, fileContent);
 
     // Get file stats
     const stats = await fs.stat(localPath);
-    const hash = crypto.createHash('sha256').update(mockContent).digest('hex');
+    const hash = crypto.createHash('sha256').update(fileContent).digest('hex');
 
     // Determine file type from extension
     const fileExt = path.extname(fileName).toLowerCase();
@@ -138,6 +225,7 @@ export async function extractTextActivity(input: ExtractTextInput): Promise<Extr
     let pageCount = 1;
     let imageCount = 0;
     let language = 'en';
+    const metadata: Record<string, any> = {};
 
     // File type specific processing
     switch (input.fileType) {
@@ -168,6 +256,7 @@ export async function extractTextActivity(input: ExtractTextInput): Promise<Extr
           // Fallback to realistic demo content with construction context
           extractedText = generateConstructionFallbackContent();
           pageCount = 1;
+          metadata.processingError = pdfError instanceof Error ? pdfError.message : String(pdfError);
         }
         break;
       
@@ -212,6 +301,7 @@ export async function extractTextActivity(input: ExtractTextInput): Promise<Extr
         language,
         imageCount,
         processingTime,
+        ...metadata,
       },
     };
 
@@ -257,8 +347,8 @@ export async function runAIAnalysisActivity(input: AIAnalysisInput): Promise<AIA
 
   try {
     // Check if OpenAI API key is available
-    if (!process.env.OPENAI_API_KEY) {
-      console.log(`[${activityId}] No OpenAI API key found, using enhanced mock analysis`);
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('sk-your-')) {
+      console.log(`[${activityId}] No valid OpenAI API key found (current: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 20) + '...' : 'NOT_SET'}), using enhanced mock analysis`);
       return generateConstructionAnalysis(input.text);
     }
 
@@ -266,8 +356,11 @@ export async function runAIAnalysisActivity(input: AIAnalysisInput): Promise<AIA
     
     // Initialize OpenAI client
     const OpenAI = await import('openai');
+    const apiKey = process.env.OPENAI_API_KEY;
+    console.log(`[${activityId}] Using OpenAI API key: ${apiKey ? apiKey.substring(0, 20) + '...' : 'NOT_SET'}`);
+    
     const openai = new OpenAI.default({
-      apiKey: process.env.OPENAI_API_KEY,
+      apiKey: apiKey,
     });
 
     console.log(`[${activityId}] Sending document to GPT-4o for trade detection...`);

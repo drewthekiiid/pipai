@@ -3,12 +3,13 @@
  * Core processing activities for document analysis and AI workflows
  */
 import { Context } from '@temporalio/activity';
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import * as crypto from 'crypto';
 import { config } from 'dotenv';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 // Load environment variables
-config();
+config({ path: '../../.env' });
+config({ path: '../../.env.local', override: true });
 // Activity context helper
 function getActivityInfo() {
     const context = Context.current();
@@ -28,16 +29,28 @@ export async function downloadFileActivity(input) {
         // Create temp directory for this analysis
         const tempDir = path.join('/tmp', input.analysisId);
         await fs.mkdir(tempDir, { recursive: true });
-        // For demo purposes, simulate file download
-        // In production, this would fetch from S3, Vercel Blob, etc.
-        const fileName = path.basename(input.fileUrl) || 'document.txt';
+        let fileContent;
+        let fileName;
+        if (input.fileUrl.startsWith('http')) {
+            // Download from URL (S3, etc.)
+            const response = await fetch(input.fileUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to download file: ${response.statusText}`);
+            }
+            fileName = path.basename(input.fileUrl) || 'document.txt';
+            const arrayBuffer = await response.arrayBuffer();
+            fileContent = Buffer.from(arrayBuffer).toString();
+        }
+        else {
+            // Local file for testing
+            fileName = path.basename(input.fileUrl) || 'document.txt';
+            fileContent = `Mock file content for ${fileName}\nUser: ${input.userId}\nAnalysis: ${input.analysisId}`;
+        }
         const localPath = path.join(tempDir, fileName);
-        // Mock file content for testing
-        const mockContent = `Mock file content for ${fileName}\nUser: ${input.userId}\nAnalysis: ${input.analysisId}`;
-        await fs.writeFile(localPath, mockContent);
+        await fs.writeFile(localPath, fileContent);
         // Get file stats
         const stats = await fs.stat(localPath);
-        const hash = crypto.createHash('sha256').update(mockContent).digest('hex');
+        const hash = crypto.createHash('sha256').update(fileContent).digest('hex');
         // Determine file type from extension
         const fileExt = path.extname(fileName).toLowerCase();
         const fileType = getFileType(fileExt);
@@ -66,6 +79,7 @@ export async function extractTextActivity(input) {
         let pageCount = 1;
         let imageCount = 0;
         let language = 'en';
+        const metadata = {};
         // File type specific processing
         switch (input.fileType) {
             case 'pdf':
@@ -88,6 +102,7 @@ export async function extractTextActivity(input) {
                     // Fallback to realistic demo content with construction context
                     extractedText = generateConstructionFallbackContent();
                     pageCount = 1;
+                    metadata.processingError = pdfError instanceof Error ? pdfError.message : String(pdfError);
                 }
                 break;
             case 'docx':
@@ -125,6 +140,7 @@ export async function extractTextActivity(input) {
                 language,
                 imageCount,
                 processingTime,
+                ...metadata,
             },
         };
     }
@@ -164,15 +180,17 @@ export async function runAIAnalysisActivity(input) {
     console.log(`[${activityId}] Running GPT-4o construction document analysis: ${input.analysisType}`);
     try {
         // Check if OpenAI API key is available
-        if (!process.env.OPENAI_API_KEY) {
-            console.log(`[${activityId}] No OpenAI API key found, using enhanced mock analysis`);
+        if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('sk-your-')) {
+            console.log(`[${activityId}] No valid OpenAI API key found (current: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 20) + '...' : 'NOT_SET'}), using enhanced mock analysis`);
             return generateConstructionAnalysis(input.text);
         }
         console.log(`[${activityId}] Initializing GPT-4o for construction analysis...`);
         // Initialize OpenAI client
         const OpenAI = await import('openai');
+        const apiKey = process.env.OPENAI_API_KEY;
+        console.log(`[${activityId}] Using OpenAI API key: ${apiKey ? apiKey.substring(0, 20) + '...' : 'NOT_SET'}`);
         const openai = new OpenAI.default({
-            apiKey: process.env.OPENAI_API_KEY,
+            apiKey: apiKey,
         });
         console.log(`[${activityId}] Sending document to GPT-4o for trade detection...`);
         // EstimAItor - Enhanced construction analysis prompt with cost code mappings

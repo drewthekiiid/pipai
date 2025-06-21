@@ -6,15 +6,17 @@ import { NativeConnection, Worker } from '@temporalio/worker';
 import dotenv from 'dotenv';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import * as activities from './activities.js';
+import * as activities from './activities';
 // Load environment variables from project root - MUST be first to override defaults
-dotenv.config({ path: '../../.env.local' });
+dotenv.config({ path: '../../.env' });
+dotenv.config({ path: '../../.env.local', override: true }); // Allow local overrides
 // Debug: log environment variables
 console.log('🔍 Environment Debug:');
 console.log(`   TEMPORAL_ADDRESS: ${process.env.TEMPORAL_ADDRESS}`);
 console.log(`   TEMPORAL_NAMESPACE: ${process.env.TEMPORAL_NAMESPACE}`);
 console.log(`   TEMPORAL_API_KEY: ${process.env.TEMPORAL_API_KEY ? '***' : 'NOT_SET'}`);
-console.log(`   Dotenv loaded from: ../../.env.local`);
+console.log(`   OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? '***' : 'NOT_SET'}`);
+console.log(`   Environment files loaded: ../../.env, ../../.env.local`);
 // ES module compatibility
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -74,7 +76,7 @@ async function createWorker(connection) {
             connection,
             namespace: config.temporal.namespace,
             taskQueue: config.worker.taskQueue,
-            workflowsPath: fileURLToPath(new URL('./workflows.js', import.meta.url)),
+            workflowsPath: fileURLToPath(new URL('./workflows.ts', import.meta.url)),
             activities,
             // Conservative settings for Temporal Cloud
             maxConcurrentActivityTaskExecutions: 1,

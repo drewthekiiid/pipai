@@ -167,13 +167,13 @@ export async function checkTemporalHealth(): Promise<boolean> {
   try {
     const { Client, Connection } = await import('@temporalio/client');
     const connection = await Connection.connect({
-      address: process.env.TEMPORAL_ADDRESS || 'temporal.pipai-namespace.tmprl.cloud:7233',
+      address: process.env.TEMPORAL_ADDRESS || 'us-east-1.aws.api.temporal.io:7233',
       tls: true,
     });
     
     const client = new Client({
       connection,
-      namespace: process.env.TEMPORAL_NAMESPACE || 'pipai-namespace',
+      namespace: process.env.TEMPORAL_NAMESPACE || 'pip-ai.ts7wf',
     });
     
     await client.workflowService.getSystemInfo({});

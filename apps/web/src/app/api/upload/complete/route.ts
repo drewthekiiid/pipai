@@ -33,9 +33,9 @@ async function getTemporalClient(): Promise<TemporalClient> {
 
     // Only add TLS and API key for Temporal Cloud
     if (config.temporal.address.includes('temporal.io')) {
-      connectionOptions.tls = {};
+      connectionOptions.tls = true;
       connectionOptions.apiKey = config.temporal.apiKey;
-      console.log('   Using Temporal Cloud with TLS and API key');
+      console.log('   Using Temporal Cloud with TLS and API key authentication');
     } else {
       console.log('   Using local Temporal server');
     }

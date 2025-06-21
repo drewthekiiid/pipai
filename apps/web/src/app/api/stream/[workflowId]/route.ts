@@ -9,8 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
 // Environment configuration
 const config = {
   temporal: {
-    address: process.env.TEMPORAL_ADDRESS || 'localhost:7233',
-    namespace: process.env.TEMPORAL_NAMESPACE || 'default',
+    address: process.env.TEMPORAL_ADDRESS || 'us-east-1.aws.api.temporal.io:7233',
+    namespace: process.env.TEMPORAL_NAMESPACE || 'pip-ai.ts7wf',
     apiKey: process.env.TEMPORAL_API_KEY || '',
   },
 };
@@ -25,7 +25,7 @@ async function getTemporalClient(): Promise<TemporalClient> {
 
     // Only add TLS and API key for Temporal Cloud
     if (config.temporal.address.includes('temporal.io')) {
-      connectionOptions.tls = {};
+      connectionOptions.tls = true;
       connectionOptions.apiKey = config.temporal.apiKey;
     }
 

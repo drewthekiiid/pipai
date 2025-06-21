@@ -11,6 +11,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.832.0",
     "@temporalio/activity": "^1.11.8",
     "@temporalio/client": "^1.11.8",
     "@temporalio/worker": "^1.11.8",

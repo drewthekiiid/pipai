@@ -8,10 +8,6 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // Configure external packages for serverless functions
-  experimental: {
-    serverComponentsExternalPackages: ['@aws-sdk/client-s3'],
-  },
   /* config options here */
 };
 
