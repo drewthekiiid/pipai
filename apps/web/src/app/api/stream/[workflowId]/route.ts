@@ -88,31 +88,50 @@ export async function GET(
       const encoder = new TextEncoder();
       let isClosed = false;
       let pollInterval: NodeJS.Timeout | null = null;
+      let cleanupExecuted = false;
       
-      // Safe sendEvent that checks if controller is still open
+      // Safe sendEvent that handles all controller closure scenarios
       const sendEvent = (event: string, data: Record<string, unknown>) => {
-        if (isClosed) return;
+        if (isClosed || cleanupExecuted) return false;
+        
         try {
           const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
           controller.enqueue(encoder.encode(message));
+          return true;
         } catch (error) {
-          console.error('Error sending SSE event:', error);
-          cleanup();
+          // Controller is already closed or in invalid state
+          if (error instanceof TypeError && error.message.includes('Controller is already closed')) {
+            console.log('SSE controller closed by client, cleaning up...');
+          } else {
+            console.error('Error sending SSE event:', error);
+          }
+          safeCleanup();
+          return false;
         }
       };
 
-      // Cleanup function to properly close everything
-      const cleanup = () => {
-        if (isClosed) return;
+      // Safe cleanup function that prevents multiple executions
+      const safeCleanup = () => {
+        if (cleanupExecuted) return;
+        cleanupExecuted = true;
         isClosed = true;
+        
+        console.log(`🧹 Cleaning up SSE stream for workflow: ${workflowId}`);
+        
+        // Clear polling interval
         if (pollInterval) {
           clearInterval(pollInterval);
           pollInterval = null;
         }
+        
+        // Safely close controller
         try {
-          controller.close();
+          if (!controller.desiredSize || controller.desiredSize > 0) {
+            controller.close();
+          }
         } catch (error) {
-          // Controller might already be closed
+          // Controller might already be closed, which is fine
+          console.log('Controller already closed during cleanup');
         }
       };
 
@@ -121,11 +140,13 @@ export async function GET(
         const handle = client.workflow.getHandle(workflowId);
 
         // Send initial connection event
-        sendEvent('connected', {
+        if (!sendEvent('connected', {
           workflowId,
           timestamp: new Date().toISOString(),
           message: 'Connected to workflow stream'
-        });
+        })) {
+          return; // Client already disconnected
+        }
 
         // Enhanced polling for construction analysis progress
         let lastStatus = '';
@@ -134,7 +155,11 @@ export async function GET(
         const maxPolls = 300; // 5 minutes max
         
         pollInterval = setInterval(async () => {
-          if (isClosed) return;
+          // Early exit if stream is closed
+          if (isClosed || cleanupExecuted) {
+            safeCleanup();
+            return;
+          }
           
           pollCount++;
           
@@ -145,12 +170,14 @@ export async function GET(
             
             // Send status update if changed
             if (currentStatus !== lastStatus) {
-              sendEvent('status', {
+              if (!sendEvent('status', {
                 workflowId,
                 status: currentStatus,
                 timestamp: new Date().toISOString(),
                 pollCount
-              });
+              })) {
+                return; // Client disconnected during send
+              }
               lastStatus = currentStatus;
             }
 
@@ -160,14 +187,16 @@ export async function GET(
               
               if (progressStatus && progressStatus.progress !== lastProgress) {
                 // Send detailed construction progress
-                sendEvent('progress', {
+                if (!sendEvent('progress', {
                   workflowId,
                   step: progressStatus.step,
                   progress: progressStatus.progress,
                   agent: extractAgentFromStep(progressStatus.step),
                   timestamp: new Date().toISOString(),
                   error: progressStatus.error || null
-                });
+                })) {
+                  return; // Client disconnected during send
+                }
                 
                 lastProgress = progressStatus.progress;
                 
@@ -207,7 +236,7 @@ export async function GET(
                 });
               }
               
-              cleanup();
+              safeCleanup();
               return;
             }
             
@@ -219,18 +248,20 @@ export async function GET(
                 timestamp: new Date().toISOString()
               });
               
-              cleanup();
+              safeCleanup();
               return;
             }
 
             // Send periodic heartbeat with connection status
             if (pollCount % 15 === 0) {
-              sendEvent('heartbeat', {
+              if (!sendEvent('heartbeat', {
                 workflowId,
                 pollCount,
                 message: 'Construction analysis in progress...',
                 timestamp: new Date().toISOString()
-              });
+              })) {
+                return; // Client disconnected during heartbeat
+              }
             }
 
             // Stop polling after max attempts
@@ -241,7 +272,7 @@ export async function GET(
                 timestamp: new Date().toISOString()
               });
               
-              cleanup();
+              safeCleanup();
             }
             
           } catch (error) {
@@ -254,7 +285,7 @@ export async function GET(
             
             // For workflow not found errors, close the stream
             if (error instanceof Error && error.message.includes('workflow not found')) {
-              cleanup();
+              safeCleanup();
             }
           }
         }, 800); // Poll more frequently for better UX
@@ -266,9 +297,15 @@ export async function GET(
           error: error instanceof Error ? error.message : 'Failed to connect to workflow',
           timestamp: new Date().toISOString()
         });
-        cleanup();
+        safeCleanup();
       }
     },
+    
+    // Handle client disconnection
+    cancel() {
+      console.log(`🔌 Client disconnected from SSE stream for workflow: ${workflowId}`);
+      // This will be handled by the cleanup logic above
+    }
   });
 
   return new Response(stream, {
