@@ -1,0 +1,8 @@
+# Allow build scripts to run without approval
+unsafe-perm=true
+
+# Enable all scripts
+enable-pre-post-scripts=true
+
+# Auto-install peer dependencies
+auto-install-peers=true 
