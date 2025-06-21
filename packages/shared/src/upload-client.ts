@@ -229,12 +229,12 @@ export async function uploadFileDirect(
     
     // Step 1: Get presigned URL
     onProgress?.(5);
-    const presignedResponse = await fetch('/api/upload/presigned-url', {
+    const presignedResponse = await fetch('/api/upload/presigned', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         fileName: file.name,
-        fileType: file.type,
+        contentType: file.type,
         fileSize: file.size,
         userId
       })
@@ -245,13 +245,13 @@ export async function uploadFileDirect(
       throw new Error(error.error || 'Failed to get upload URL');
     }
 
-    const { presignedUrl, fileUrl, s3Key, fileId } = await presignedResponse.json();
+    const { uploadUrl, s3Key, fileId } = await presignedResponse.json();
     
     // Step 2: Upload directly to S3
     onProgress?.(10);
     console.log(`📤 Uploading directly to S3...`);
     
-    const uploadResponse = await fetch(presignedUrl, {
+    const uploadResponse = await fetch(uploadUrl, {
       method: 'PUT',
       body: file,
       headers: {
@@ -274,12 +274,9 @@ export async function uploadFileDirect(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        fileUrl,
-        fileName: file.name,
         s3Key,
-        fileId,
+        fileName: file.name,
         userId,
-        fileSize: file.size
       })
     });
 

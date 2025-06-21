@@ -8,6 +8,17 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // API route configuration
+  api: {
+    bodyParser: {
+      sizeLimit: '50mb', // Increase body size limit (though presigned URLs bypass this)
+    },
+    responseLimit: false,
+  },
+  // Enable experimental features for large uploads
+  experimental: {
+    largePageDataBytes: 128 * 1024, // 128KB
+  },
   /* config options here */
 };
 

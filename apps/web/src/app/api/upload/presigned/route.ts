@@ -1,9 +1,9 @@
 /**
- * Presigned URL API for Direct S3 Uploads
- * Bypasses Vercel function payload limits by allowing direct browser-to-S3 uploads
+ * Presigned URL API - Generate secure URLs for direct S3 uploads
+ * This bypasses Vercel's 4.5MB body size limit by allowing direct uploads to S3
  */
 
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
@@ -27,14 +27,6 @@ const s3Client = new S3Client({
   },
 });
 
-// Helper function to generate S3 key
-function generateS3Key(userId: string, filename: string): string {
-  const fileId = uuidv4();
-  const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '/');
-  const safeFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
-  return `uploads/${userId}/${timestamp}/${fileId}_${safeFilename}`;
-}
-
 // Types
 interface PresignedUrlRequest {
   fileName: string;
@@ -45,13 +37,21 @@ interface PresignedUrlRequest {
 
 interface PresignedUrlResponse {
   uploadUrl: string;
-  downloadUrl: string;
   s3Key: string;
   fileId: string;
+  fileName: string;
   expiresIn: number;
 }
 
-// Generate presigned URL for upload
+// Helper functions
+function generateS3Key(userId: string, filename: string): string {
+  const fileId = uuidv4();
+  const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '/');
+  const safeFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+  return `uploads/${userId}/${timestamp}/${fileId}_${safeFilename}`;
+}
+
+// Generate presigned URL for S3 upload
 export async function POST(request: NextRequest) {
   try {
     const body: PresignedUrlRequest = await request.json();
@@ -63,13 +63,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (!fileSize || fileSize <= 0) {
-      return NextResponse.json({ error: 'fileSize must be greater than 0' }, { status: 400 });
+      return NextResponse.json({ error: 'Valid fileSize is required' }, { status: 400 });
     }
 
-    // File size limit (500MB for presigned uploads)
-    if (fileSize > 500 * 1024 * 1024) {
-      return NextResponse.json({
-        error: 'File too large. Maximum size is 500MB for direct uploads.'
+    if (!contentType) {
+      return NextResponse.json({ error: 'contentType is required' }, { status: 400 });
+    }
+
+    // Validate file size (100MB limit - our application limit)
+    if (fileSize > 100 * 1024 * 1024) {
+      return NextResponse.json({ 
+        error: 'File too large. Maximum size is 100MB.' 
       }, { status: 400 });
     }
 
@@ -77,43 +81,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'AWS S3 bucket not configured' }, { status: 500 });
     }
 
-    // Generate S3 key
+    console.log(`🔗 Generating presigned URL for: ${fileName} (${fileSize} bytes)`);
+
+    // Generate S3 key and file ID
     const s3Key = generateS3Key(userId, fileName);
     const fileId = s3Key.split('/').pop()?.split('_')[0] || uuidv4();
 
-    console.log(`🔗 Generating presigned URL for: ${fileName} (${fileSize} bytes)`);
-
-    // Create presigned URL for upload (expires in 1 hour)
-    const putCommand = new PutObjectCommand({
+    // Create presigned URL for PUT operation
+    const putObjectCommand = new PutObjectCommand({
       Bucket: config.aws.bucketName,
       Key: s3Key,
       ContentType: contentType,
+      ContentLength: fileSize,
       Metadata: {
         originalName: fileName,
+        userId: userId,
         uploadedAt: new Date().toISOString(),
-        userId,
       },
     });
 
-    const uploadUrl = await getSignedUrl(s3Client, putCommand, { expiresIn: 3600 });
-
-    // Create presigned URL for download (expires in 24 hours)
-    const getCommand = new GetObjectCommand({
-      Bucket: config.aws.bucketName,
-      Key: s3Key,
+    // Generate presigned URL (expires in 10 minutes)
+    const expiresIn = 10 * 60; // 10 minutes
+    const uploadUrl = await getSignedUrl(s3Client, putObjectCommand, {
+      expiresIn,
     });
-
-    const downloadUrl = await getSignedUrl(s3Client, getCommand, { expiresIn: 86400 });
 
     const response: PresignedUrlResponse = {
       uploadUrl,
-      downloadUrl,
       s3Key,
       fileId,
-      expiresIn: 3600, // 1 hour
+      fileName,
+      expiresIn,
     };
 
-    console.log(`✅ Presigned URL generated for: ${fileName}`);
+    console.log(`✅ Presigned URL generated for ${fileName} → ${fileId}`);
     return NextResponse.json(response);
 
   } catch (error) {

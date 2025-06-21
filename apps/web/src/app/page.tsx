@@ -168,28 +168,24 @@ export default function FuturisticChat() {
         }
         setMessages((prev) => [...prev, uploadMessage])
 
-        // Upload file to backend
-        const formData = new FormData()
-        formData.append('file', stagedFile.file)
-        formData.append('userId', 'demo-user') // In a real app, this would come from auth
-        formData.append('analysisType', 'construction')
+        // Upload file using presigned URL (bypasses Vercel 4.5MB limit)
+        const { uploadFileDirect } = await import('@pip-ai/shared')
+        
+        const uploadResult = await uploadFileDirect(
+          stagedFile.file,
+          'demo-user', // In a real app, this would come from auth
+          (progress) => {
+            // Could update progress here if needed
+            console.log(`Upload progress: ${progress}%`)
+          }
+        )
 
-        const uploadResponse = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        })
-
-        if (!uploadResponse.ok) {
-          throw new Error(`Upload failed: ${uploadResponse.statusText}`)
-        }
-
-        const uploadResult = await uploadResponse.json()
-        workflowIds.push(uploadResult.workflowId)
+        workflowIds.push(uploadResult.workflow_id)
 
         const uploadSuccessMessage: Message = {
           id: `${Date.now()}-${Math.random()}`,
           type: "agent-step",
-          content: `✅ ${stagedFile.name} uploaded successfully. Analysis workflow started (ID: ${uploadResult.workflowId.slice(0, 8)}...)`,
+          content: `✅ ${stagedFile.name} uploaded successfully. Analysis workflow started (ID: ${uploadResult.workflow_id.slice(0, 8)}...)`,
           timestamp: new Date(),
           agent: "Manager",
           agentId: "manager",
