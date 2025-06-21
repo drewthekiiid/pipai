@@ -17,13 +17,7 @@ interface AnalysisResult {
   error?: string;
 }
 
-interface UploadResponse {
-  success: boolean;
-  workflowId: string;
-  fileUrl: string;
-  message: string;
-  error?: string;
-}
+
 
 type UploadState = 'idle' | 'uploading' | 'processing' | 'completed' | 'error';
 
@@ -45,36 +39,64 @@ export function PipAIUploadApp() {
     setSelectedFile(file);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('userId', 'demo-user-' + Date.now());
-      formData.append('analysisType', 'document');
-
-      // Simulate upload progress
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => Math.min(prev + 10, 90));
-      }, 100);
-
-      const response = await fetch('/api/upload', {
+      console.log('🔗 Requesting presigned URL...');
+      const presignedResponse = await fetch('/api/upload/presigned', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          contentType: file.type,
+          userId: 'demo-user-' + Date.now(),
+        }),
       });
 
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
+      if (!presignedResponse.ok) {
+        throw new Error(`Failed to get presigned URL: ${presignedResponse.statusText}`);
       }
 
-      const data: UploadResponse = await response.json();
+      const presignedData = await presignedResponse.json();
+      console.log('✅ Got presigned URL:', presignedData);
+
+      console.log('📤 Uploading to S3...');
+      setUploadProgress(25);
+
+      const uploadResponse = await fetch(presignedData.uploadUrl, {
+        method: 'PUT',
+        body: file,
+        headers: {
+          'Content-Type': file.type,
+        },
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`S3 upload failed: ${uploadResponse.statusText}`);
+      }
+
+      console.log('✅ File uploaded to S3 successfully');
+      setUploadProgress(75);
+
+      console.log('🚀 Completing upload and starting workflow...');
+      const completeResponse = await fetch('/api/upload/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          s3Key: presignedData.s3Key,
+          fileName: file.name,
+          userId: 'demo-user-' + Date.now(),
+          fileSize: file.size,
+        }),
+      });
+
+      if (!completeResponse.ok) {
+        throw new Error(`Failed to complete upload: ${completeResponse.statusText}`);
+      }
+
+      const completeData = await completeResponse.json();
+      console.log('✅ Upload completed:', completeData);
       
-      if (!data.success) {
-        throw new Error(data.error || 'Upload failed');
-      }
-
-      console.log('Upload successful:', data);
-      setWorkflowId(data.workflowId);
+      setUploadProgress(100);
+      setWorkflowId(completeData.workflow_id);
       setUploadState('processing');
 
     } catch (err) {
