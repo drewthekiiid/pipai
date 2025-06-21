@@ -1,11 +1,5 @@
 {
-  "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "npx prisma generate && pnpm turbo build --filter=web",
+  "buildCommand": "pnpm install && npx prisma generate && pnpm turbo build --filter=web",
   "framework": "nextjs",
-  "outputDirectory": "apps/web/.next",
-  "functions": {
-    "apps/web/.next/server/app/api/**": {
-      "maxDuration": 60
-    }
-  }
+  "outputDirectory": "apps/web/.next"
 }
