@@ -1,6 +1,5 @@
 {
+  "buildCommand": "pnpm install --frozen-lockfile && npx prisma generate && pnpm turbo build --filter=web",
   "framework": "nextjs",
-  "outputDirectory": "apps/web/.next",
-  "installCommand": "npm install --prefix . && npm install --prefix apps/web",
-  "buildCommand": "npx prisma generate --schema=prisma/schema.prisma && cd apps/web && npm run build"
+  "outputDirectory": "apps/web/.next"
 }
