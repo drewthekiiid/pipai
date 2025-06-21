@@ -3,29 +3,29 @@
  * Node.js Client to test workflow execution directly
  * This should bypass the Python-Node.js compatibility issue
  */
-import 'dotenv/config';
 import { Client, Connection } from '@temporalio/client';
 import { config } from 'dotenv';
+import 'dotenv/config';
 // Load environment variables from project root
 config({ path: '../../../.env' });
 console.log('🧪 Testing Workflow Execution with Node.js Client...');
 async function testWorkflowExecution() {
     try {
         // Create connection
-        const connectionOptions = {
-            address: process.env.TEMPORAL_ADDRESS || 'localhost:7233',
-        };
-        if (connectionOptions.address.includes('temporal.io')) {
-            connectionOptions.tls = {};
-            connectionOptions.apiKey = process.env.TEMPORAL_API_KEY;
-        }
-        console.log(`🔌 Connecting to: ${connectionOptions.address}`);
-        const connection = await Connection.connect(connectionOptions);
+        const address = process.env.TEMPORAL_ADDRESS || 'us-east-1.aws.api.temporal.io:7233';
+        const namespace = process.env.TEMPORAL_NAMESPACE || 'pip-ai.ts7wf';
+        const apiKey = process.env.TEMPORAL_API_KEY;
+        console.log(`🔌 Connecting to: ${address}`);
+        const connection = await Connection.connect({
+            address,
+            tls: apiKey ? {} : undefined,
+            apiKey,
+        });
         console.log('✅ Connected successfully');
         // Create client
         const client = new Client({
             connection,
-            namespace: process.env.TEMPORAL_NAMESPACE || 'default',
+            namespace,
         });
         // Prepare workflow input (same as Python API)
         const workflowInput = {

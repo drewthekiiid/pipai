@@ -107,7 +107,7 @@ async function startAnalysisWorkflow(fileUrl: string, fileName: string, userId: 
 export async function POST(request: NextRequest) {
   try {
     const body: CompleteUploadRequest = await request.json();
-    const { s3Key, fileName, userId = 'demo-user', fileSize } = body;
+    const { s3Key, fileName, userId = 'demo-user' } = body;
 
     // Validate input
     if (!s3Key) {

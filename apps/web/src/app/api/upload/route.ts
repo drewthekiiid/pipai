@@ -68,7 +68,7 @@ async function getTemporalClient(): Promise<TemporalClient> {
   if (!temporalClient) {
     console.log('🔗 Creating Temporal client...');
 
-    const connectionOptions: any = {
+    const connectionOptions: Record<string, unknown> = {
       address: config.temporal.address,
     };
 
@@ -84,7 +84,7 @@ async function getTemporalClient(): Promise<TemporalClient> {
     console.log('🔧 Connection options:', {
       address: connectionOptions.address,
       tls: connectionOptions.tls,
-      apiKey: connectionOptions.apiKey ? `${connectionOptions.apiKey.substring(0, 20)}...` : 'missing'
+      apiKey: config.temporal.apiKey ? `${config.temporal.apiKey.substring(0, 20)}...` : 'missing'
     });
 
     const connection = await Connection.connect(connectionOptions);

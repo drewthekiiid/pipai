@@ -32,14 +32,79 @@ export async function downloadFileActivity(input) {
         let fileContent;
         let fileName;
         if (input.fileUrl.startsWith('http')) {
-            // Download from URL (S3, etc.)
-            const response = await fetch(input.fileUrl);
-            if (!response.ok) {
-                throw new Error(`Failed to download file: ${response.statusText}`);
+            // Check if this is an S3 URL
+            if (input.fileUrl.includes('.s3.') || input.fileUrl.includes('s3.amazonaws.com')) {
+                // Handle S3 download with AWS SDK
+                console.log(`[${activityId}] Detected S3 URL, using AWS SDK for download`);
+                try {
+                    // Parse S3 URL to extract bucket and key
+                    const s3Url = new URL(input.fileUrl);
+                    let bucketName;
+                    let objectKey;
+                    if (s3Url.hostname.includes('.s3.')) {
+                        // Format: https://bucket-name.s3.region.amazonaws.com/path/to/file
+                        bucketName = s3Url.hostname.split('.')[0];
+                        objectKey = s3Url.pathname.slice(1); // Remove leading slash
+                    }
+                    else {
+                        // Format: https://s3.region.amazonaws.com/bucket-name/path/to/file
+                        const pathParts = s3Url.pathname.slice(1).split('/');
+                        bucketName = pathParts[0];
+                        objectKey = pathParts.slice(1).join('/');
+                    }
+                    console.log(`[${activityId}] S3 Details - Bucket: ${bucketName}, Key: ${objectKey}`);
+                    // Import AWS SDK
+                    const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+                    // Create S3 client for AWS (no endpoint needed - auto-resolved)
+                    const s3Client = new S3Client({
+                        region: process.env.AWS_REGION || 'us-east-1',
+                        credentials: {
+                            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+                        },
+                        // AWS S3 uses virtual-hosted-style by default (no forcePathStyle needed)
+                    });
+                    // Download object from S3
+                    const command = new GetObjectCommand({
+                        Bucket: bucketName,
+                        Key: objectKey,
+                    });
+                    const response = await s3Client.send(command);
+                    if (!response.Body) {
+                        throw new Error('No file content received from S3');
+                    }
+                    // Convert AWS SDK stream to buffer
+                    const chunks = [];
+                    // Handle the stream properly for AWS SDK
+                    if (response.Body instanceof Buffer) {
+                        fileContent = response.Body.toString();
+                    }
+                    else {
+                        // Handle readable stream
+                        const stream = response.Body;
+                        for await (const chunk of stream) {
+                            chunks.push(Buffer.from(chunk));
+                        }
+                        fileContent = Buffer.concat(chunks).toString();
+                    }
+                    fileName = path.basename(objectKey) || 'document.txt';
+                    console.log(`[${activityId}] S3 download successful: ${fileContent.length} characters`);
+                }
+                catch (s3Error) {
+                    console.error(`[${activityId}] S3 download failed:`, s3Error);
+                    throw new Error(`Failed to download from S3: ${s3Error instanceof Error ? s3Error.message : 'Unknown S3 error'}`);
+                }
             }
-            fileName = path.basename(input.fileUrl) || 'document.txt';
-            const arrayBuffer = await response.arrayBuffer();
-            fileContent = Buffer.from(arrayBuffer).toString();
+            else {
+                // Download from regular HTTP URL
+                const response = await fetch(input.fileUrl);
+                if (!response.ok) {
+                    throw new Error(`Failed to download file: ${response.statusText}`);
+                }
+                fileName = path.basename(input.fileUrl) || 'document.txt';
+                const arrayBuffer = await response.arrayBuffer();
+                fileContent = Buffer.from(arrayBuffer).toString();
+            }
         }
         else {
             // Local file for testing
