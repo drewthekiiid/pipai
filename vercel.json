@@ -1,5 +1,7 @@
 {
   "framework": "nextjs",
   "outputDirectory": "apps/web/.next",
-  "buildCommand": "npm install --prefix . && npm install --prefix apps/web && npx prisma generate --schema=prisma/schema.prisma && cd apps/web && npm run build"
+  "installCommand": "npm install --prefix . && npm install --prefix apps/web",
+  "buildCommand": "npx prisma generate --schema=prisma/schema.prisma && cd apps/web && npm run build",
+  "packageManager": "npm"
 }
