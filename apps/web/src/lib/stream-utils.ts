@@ -166,10 +166,25 @@ export async function checkRedisHealth(): Promise<boolean> {
 export async function checkTemporalHealth(): Promise<boolean> {
   try {
     const { Client, Connection } = await import('@temporalio/client');
-    const connection = await Connection.connect({
-      address: process.env.TEMPORAL_ADDRESS || 'us-east-1.aws.api.temporal.io:7233',
-      tls: true,
-    });
+    
+    const temporalAddress = process.env.TEMPORAL_ADDRESS || 'us-east-1.aws.api.temporal.io:7233';
+    const connectionOptions: Record<string, unknown> = {
+      address: temporalAddress,
+    };
+
+    // Only add TLS and API key for Temporal Cloud
+    if (temporalAddress.includes('temporal.io')) {
+      connectionOptions.tls = true;
+      
+      // Ensure API key doesn't have Bearer prefix and clean it
+      let cleanApiKey = process.env.TEMPORAL_API_KEY || '';
+      if (cleanApiKey.startsWith('Bearer ')) {
+        cleanApiKey = cleanApiKey.substring(7);
+      }
+      connectionOptions.apiKey = cleanApiKey;
+    }
+    
+    const connection = await Connection.connect(connectionOptions);
     
     const client = new Client({
       connection,

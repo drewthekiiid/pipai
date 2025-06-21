@@ -26,7 +26,13 @@ async function getTemporalClient(): Promise<TemporalClient> {
     // Only add TLS and API key for Temporal Cloud
     if (config.temporal.address.includes('temporal.io')) {
       connectionOptions.tls = true;
-      connectionOptions.apiKey = config.temporal.apiKey;
+      
+      // Ensure API key doesn't have Bearer prefix and clean it
+      let cleanApiKey = config.temporal.apiKey;
+      if (cleanApiKey.startsWith('Bearer ')) {
+        cleanApiKey = cleanApiKey.substring(7);
+      }
+      connectionOptions.apiKey = cleanApiKey;
     }
 
     temporalClient = new TemporalClient({

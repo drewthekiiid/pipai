@@ -3,3 +3,12 @@
 > @pip-ai/worker@0.1.0 build /Users/thekiiid/pipai/packages/worker
 > tsc
 
+[96msrc/activities.ts[0m:[93m358[0m:[93m33[0m - [91merror[0m[90m TS2307: [0mCannot find module 'openai' or its corresponding type declarations.
+
+[7m358[0m     const OpenAI = await import('openai');
+[7m   [0m [91m                                ~~~~~~~~[0m
+
+
+Found 1 error in src/activities.ts[90m:358[0m
+
+[41m[30m ELIFECYCLE [39m[49m [31mCommand failed with exit code 2.[39m
