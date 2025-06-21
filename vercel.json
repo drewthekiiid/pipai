@@ -1,6 +1,5 @@
 {
-  "installCommand": "npm install",
-  "buildCommand": "npx prisma generate && npx turbo build --filter=web",
   "framework": "nextjs",
-  "outputDirectory": "apps/web/.next"
+  "outputDirectory": "apps/web/.next",
+  "buildCommand": "npm install --prefix . && npm install --prefix apps/web && npx prisma generate --schema=prisma/schema.prisma && cd apps/web && npm run build"
 }
