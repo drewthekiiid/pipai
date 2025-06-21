@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
+// Configure route as dynamic for API functionality
+export const dynamic = 'force-dynamic';
+
 const chatRequestSchema = z.object({
   message: z.string().min(1, 'Message cannot be empty'),
   userId: z.string().min(1, 'User ID is required'),

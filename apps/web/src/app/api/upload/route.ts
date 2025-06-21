@@ -4,6 +4,9 @@
  * Handles file uploads to S3 and triggers Temporal workflows for analysis
  */
 
+// Configure route as dynamic for API functionality  
+export const dynamic = 'force-dynamic';
+
 import { HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Connection, Client as TemporalClient } from '@temporalio/client';
 import { Redis } from '@upstash/redis';
@@ -38,13 +41,18 @@ const requiredEnvVars = [
   'TEMPORAL_API_KEY'
 ];
 
-// Only validate in non-build environments
-if (process.env.NODE_ENV !== 'production' || process.env.VERCEL_ENV) {
-  for (const envVar of requiredEnvVars) {
-    if (!process.env[envVar]) {
-      console.warn(`⚠️  Environment variable ${envVar} is not set`);
+// Only validate environment variables at runtime, not during build  
+try {
+  if (process.env.NODE_ENV !== 'production' || (typeof process !== 'undefined' && process.env.VERCEL_ENV)) {
+    for (const envVar of requiredEnvVars) {
+      if (!process.env[envVar]) {
+        console.warn(`⚠️  Environment variable ${envVar} is not set`);
+      }
     }
   }
+} catch (error) {
+  // Skip validation during build process
+  console.log('Skipping environment validation during build');
 }
 
 // Initialize clients

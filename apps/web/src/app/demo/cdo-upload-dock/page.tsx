@@ -1,3 +1,9 @@
+// Force dynamic rendering to prevent static generation issues
+
+export const dynamic = 'force-dynamic';
+
+
+
 export default function CDOUploadDockPage() {
   return (
     <div className="container mx-auto py-8">

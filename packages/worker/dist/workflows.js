@@ -2,7 +2,7 @@
  * PIP AI Temporal Workflows
  * Handles document analysis, AI processing, and workflow orchestration
  */
-import { defineSignal, defineQuery, setHandler, proxyActivities, log, sleep } from '@temporalio/workflow';
+import { defineQuery, defineSignal, log, proxyActivities, setHandler, sleep } from '@temporalio/workflow';
 // Configure activity proxies with timeouts
 const { downloadFileActivity, extractTextActivity, generateEmbeddingsActivity, runAIAnalysisActivity, saveAnalysisActivity, notifyUserActivity, cleanupTempFilesActivity } = proxyActivities({
     startToCloseTimeout: '5 minutes',

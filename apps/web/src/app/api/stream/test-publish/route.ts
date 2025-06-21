@@ -1,5 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+// Configure route as dynamic for API functionality
+export const dynamic = 'force-dynamic';
+
 import { publishEvent } from '@/lib/stream-utils';
+import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   try {

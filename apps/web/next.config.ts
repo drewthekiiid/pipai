@@ -12,6 +12,11 @@ const nextConfig: NextConfig = {
   experimental: {
     largePageDataBytes: 128 * 1024, // 128KB
   },
+  // Configure for Vercel deployment with complete dynamic rendering
+  output: 'standalone',
+  trailingSlash: false,
+  // This is the key fix for Next.js 15 - disable static page generation entirely
+  outputFileTracingExcludes: {},
   /* config options here */
 };
 

@@ -3,6 +3,9 @@
  * GET /api/stream/[workflowId] - Stream workflow execution progress
  */
 
+// Configure route as dynamic for API functionality
+export const dynamic = 'force-dynamic';
+
 import { Connection, Client as TemporalClient } from '@temporalio/client';
 import { NextRequest, NextResponse } from 'next/server';
 

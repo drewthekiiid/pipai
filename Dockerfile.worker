@@ -1,0 +1,94 @@
+# PIP AI Temporal Worker - Fly.io Deployment
+# Multi-stage build for monorepo worker deployment
+
+FROM node:20-slim AS builder
+
+# Install system dependencies and pnpm
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g pnpm
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/worker/package.json ./packages/worker/
+COPY packages/shared/package.json ./packages/shared/
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Copy source code and configs
+COPY packages/worker/src ./packages/worker/src
+COPY packages/worker/tsconfig.json ./packages/worker/
+COPY packages/shared/src ./packages/shared/src
+COPY packages/shared/tsconfig.json ./packages/shared/
+COPY packages/shared/tsup.config.ts ./packages/shared/
+COPY tsconfig.json ./
+COPY turbo.json ./
+
+# Build shared package first, then worker
+RUN pnpm build --filter=@pip-ai/shared
+RUN pnpm build --filter=@pip-ai/worker
+
+# Production stage
+FROM node:20-slim AS production
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    dumb-init \
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-ca-certificates
+
+# Create non-root user
+RUN groupadd --system --gid 1001 worker && \
+    useradd --system --uid 1001 --gid worker worker
+
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm
+
+# Copy package files for production install
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/worker/package.json ./packages/worker/
+COPY packages/shared/package.json ./packages/shared/
+
+# Install production dependencies only
+RUN pnpm install --frozen-lockfile --prod
+
+# Copy built worker and shared packages
+COPY --from=builder /app/packages/worker/dist ./packages/worker/dist
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+
+# Copy TypeScript source files (required by Temporal's workflow bundler)
+COPY --from=builder /app/packages/worker/src ./packages/worker/src
+COPY --from=builder /app/packages/worker/tsconfig.json ./packages/worker/
+COPY --from=builder /app/packages/shared/src ./packages/shared/src
+COPY --from=builder /app/packages/shared/tsconfig.json ./packages/shared/
+COPY --from=builder /app/tsconfig.json ./
+
+# Create temp directory and set permissions
+RUN mkdir -p /tmp && chown -R worker:worker /tmp && chown -R worker:worker /app
+
+# Switch to non-root user
+USER worker
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD node -e "console.log('Worker is running')" || exit 1
+
+# Environment variables
+ENV NODE_ENV=production
+ENV LOG_LEVEL=info
+
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start the worker using npm script
+WORKDIR /app/packages/worker
+CMD ["npm", "run", "start"] 

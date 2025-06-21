@@ -3,8 +3,8 @@
  * Handles document analysis, AI processing, and workflow orchestration
  */
 
-import { defineSignal, defineQuery, setHandler, condition, proxyActivities, log, sleep } from '@temporalio/workflow';
-import type * as activities from './activities';
+import { defineQuery, defineSignal, log, proxyActivities, setHandler, sleep } from '@temporalio/workflow';
+import type * as activities from './activities.js';
 
 // Configure activity proxies with timeouts
 const { 

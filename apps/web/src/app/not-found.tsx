@@ -1,7 +1,16 @@
+// Ensure this page is always dynamic
+export const dynamic = 'force-dynamic';
+
 export default function NotFound() {
   return (
-    <div className="h-screen flex items-center justify-center">
-      <h1 className="text-2xl font-semibold">404 - Page Not Found</h1>
+    <div style={{ 
+      height: '100vh', 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      fontFamily: 'system-ui'
+    }}>
+      <h1>404 - Page Not Found</h1>
     </div>
   );
 }

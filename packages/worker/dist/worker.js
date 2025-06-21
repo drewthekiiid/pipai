@@ -6,7 +6,7 @@ import { NativeConnection, Worker } from '@temporalio/worker';
 import dotenv from 'dotenv';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import * as activities from './activities';
+import * as activities from './activities.js';
 // Load environment variables from project root - MUST be first to override defaults
 dotenv.config({ path: '../../.env' });
 dotenv.config({ path: '../../.env.local', override: true }); // Allow local overrides
@@ -75,12 +75,17 @@ async function createConnection() {
 async function createWorker(connection) {
     console.log('🏗️  Creating Temporal worker...');
     try {
+        // Determine the workflows path - in production, use absolute path to src directory
+        const workflowsPath = process.env.NODE_ENV === 'production'
+            ? '/app/packages/worker/src/workflows.ts'
+            : fileURLToPath(new URL('./workflows.ts', import.meta.url));
+        console.log(`   Using workflows path: ${workflowsPath}`);
         // Minimal worker configuration for maximum Temporal Cloud compatibility
         const worker = await Worker.create({
             connection,
             namespace: config.temporal.namespace,
             taskQueue: config.worker.taskQueue,
-            workflowsPath: fileURLToPath(new URL('./workflows.ts', import.meta.url)),
+            workflowsPath,
             activities,
             // Conservative settings for Temporal Cloud
             maxConcurrentActivityTaskExecutions: 1,

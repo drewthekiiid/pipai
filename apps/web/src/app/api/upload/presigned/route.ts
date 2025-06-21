@@ -3,6 +3,9 @@
  * This bypasses Vercel's 4.5MB body size limit by allowing direct uploads to S3
  */
 
+// Configure route as dynamic for API functionality
+export const dynamic = 'force-dynamic';
+
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { NextRequest, NextResponse } from 'next/server';
