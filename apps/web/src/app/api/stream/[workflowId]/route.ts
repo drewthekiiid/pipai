@@ -91,20 +91,39 @@ export async function GET(
       let cleanupExecuted = false;
       
       // Safe sendEvent that handles all controller closure scenarios
-      const sendEvent = (event: string, data: Record<string, unknown>) => {
-        if (isClosed || cleanupExecuted) return false;
+      const sendEvent = (event: string, data: Record<string, unknown>): boolean => {
+        // Multiple safety checks before attempting to send
+        if (isClosed || cleanupExecuted) {
+          return false;
+        }
         
+        // Check if controller is still writable
         try {
+          // Test controller state before attempting to enqueue
+          if (!controller.desiredSize && controller.desiredSize !== 0) {
+            console.log('🔌 Controller no longer writable, client disconnected');
+            safeCleanup();
+            return false;
+          }
+          
           const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
           controller.enqueue(encoder.encode(message));
           return true;
-        } catch (error) {
-          // Controller is already closed or in invalid state
-          if (error instanceof TypeError && error.message.includes('Controller is already closed')) {
-            console.log('SSE controller closed by client, cleaning up...');
+          
+        } catch (error: unknown) {
+          // Handle all controller error scenarios
+          if (error instanceof TypeError) {
+            if (error.message.includes('Controller is already closed') || 
+                error.message.includes('Invalid state')) {
+              console.log('🔌 SSE controller closed by client, cleaning up gracefully');
+            } else {
+              console.error('SSE TypeError:', error.message);
+            }
           } else {
-            console.error('Error sending SSE event:', error);
+            console.error('SSE send error:', error);
           }
+          
+          // Always cleanup on any controller error
           safeCleanup();
           return false;
         }
@@ -113,25 +132,32 @@ export async function GET(
       // Safe cleanup function that prevents multiple executions
       const safeCleanup = () => {
         if (cleanupExecuted) return;
-        cleanupExecuted = true;
-        isClosed = true;
         
         console.log(`🧹 Cleaning up SSE stream for workflow: ${workflowId}`);
         
-        // Clear polling interval
+        // Set flags first to prevent race conditions
+        cleanupExecuted = true;
+        isClosed = true;
+        
+        // Clear polling interval immediately
         if (pollInterval) {
           clearInterval(pollInterval);
           pollInterval = null;
         }
         
-        // Safely close controller
+        // Safely close controller with multiple checks
         try {
-          if (!controller.desiredSize || controller.desiredSize > 0) {
+          // Only attempt to close if controller appears to be open
+          if (controller && typeof controller.close === 'function') {
             controller.close();
           }
         } catch (error) {
           // Controller might already be closed, which is fine
-          console.log('Controller already closed during cleanup');
+          if (error instanceof TypeError && error.message.includes('Controller is already closed')) {
+            console.log('✅ Controller already closed during cleanup');
+          } else {
+            console.log('⚠️ Controller cleanup warning:', error);
+          }
         }
       };
 
