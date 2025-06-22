@@ -50,7 +50,7 @@ try {
       }
     }
   }
-} catch (error) {
+} catch {
   // Skip validation during build process
   console.log('Skipping environment validation during build');
 }
