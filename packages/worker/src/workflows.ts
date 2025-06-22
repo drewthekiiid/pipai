@@ -6,7 +6,7 @@
 import { defineQuery, defineSignal, log, proxyActivities, setHandler, sleep } from '@temporalio/workflow';
 import type * as activities from './activities.js';
 
-// Configure activity proxies with timeouts
+// Configure activity proxies with timeouts optimized for parallel execution
 const { 
   downloadFileActivity,
   extractTextActivity,
@@ -16,11 +16,21 @@ const {
   notifyUserActivity,
   cleanupTempFilesActivity 
 } = proxyActivities<typeof activities>({
-  startToCloseTimeout: '5 minutes',
+  startToCloseTimeout: '8 minutes',  // Increased for large PDF processing
   retry: {
     initialInterval: '1s',
     maximumInterval: '30s',
     maximumAttempts: 3,
+  },
+});
+
+// Configure longer timeout for AI analysis specifically
+const { runAIAnalysisActivity: runLongAIAnalysis } = proxyActivities<typeof activities>({
+  startToCloseTimeout: '10 minutes',  // Extended for GPT-4o processing
+  retry: {
+    initialInterval: '2s',
+    maximumInterval: '45s', 
+    maximumAttempts: 2,  // Fewer retries for expensive AI calls
   },
 });
 
@@ -119,7 +129,7 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
       options: input.options,
     });
 
-    // Step 3: Trade Mapper Agent - Construction Analysis  
+    // Step 3 & 4: Trade Mapper + Estimator Agents - PARALLEL PROCESSING
     status = { step: 'Trade Mapper Agent: Scanning for CSI divisions and trades...', progress: 35 };
     if (status.canceled) throw new Error('Analysis canceled');
     
@@ -128,35 +138,40 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
     status = { step: 'Trade Mapper Agent: Detecting architectural and structural elements...', progress: 45 };
     await sleep(800);
     
-    status = { step: 'Trade Mapper Agent: Identifying MEP systems and specifications...', progress: 55 };
-    const embeddingsResult = await generateEmbeddingsActivity({
-      text: textResult.extractedText,
-      userId: input.userId,
-    });
+    status = { step: 'Estimator Agent: Initializing parallel analysis pipeline...', progress: 55 };
+    
+    // 🚀 PARALLEL EXECUTION: Run embeddings and AI analysis simultaneously
+    const [embeddingsResult, aiResult] = await Promise.all([
+      // Trade Mapper Agent - Embeddings generation
+      (async () => {
+        log.info('Starting embeddings generation in parallel', { analysisId });
+        return await generateEmbeddingsActivity({
+          text: textResult.extractedText,
+          userId: input.userId,
+        });
+      })(),
+      
+      // Estimator Agent - AI analysis  
+      (async () => {
+        log.info('Starting AI analysis in parallel', { analysisId });
+        await sleep(300); // Brief delay for UI progression
+        status = { step: 'Estimator Agent: Running GPT-4o construction analysis...', progress: 65 };
+        await sleep(200);
+        status = { step: 'Estimator Agent: Generating trade detection and scope of work...', progress: 75 };
+        return await runLongAIAnalysis({
+          text: textResult.extractedText,
+          analysisType: input.analysisType,
+          metadata: textResult.metadata,
+        });
+      })()
+    ]);
 
-    // Step 4: Estimator Agent - AI Analysis
-    status = { step: 'Estimator Agent: Initializing GPT-4o construction analysis...', progress: 60 };
-    if (status.canceled) throw new Error('Analysis canceled');
-    
-    await sleep(700);
-    
-    status = { step: 'Estimator Agent: Running professional trade detection...', progress: 70 };
-    await sleep(500);
-    
-    status = { step: 'Estimator Agent: Generating scope of work and material takeoffs...', progress: 80 };
-    const aiResult = await runAIAnalysisActivity({
-      text: textResult.extractedText,
-      analysisType: input.analysisType,
-      metadata: textResult.metadata,
-    });
-
-    // Step 5: Exporter Agent - Results Processing
+    // Step 5 & 6: Exporter + Manager Agents - PARALLEL COMPLETION
     status = { step: 'Exporter Agent: Structuring analysis results...', progress: 85 };
     if (status.canceled) throw new Error('Analysis canceled');
     
     await sleep(400);
     
-    status = { step: 'Exporter Agent: Saving trade analysis to database...', progress: 90 };
     const analysisData = {
       analysisId,
       userId: input.userId,
@@ -173,22 +188,29 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
       },
     };
 
-    await saveAnalysisActivity(analysisData);
-
-    // Step 6: Manager Agent - Final Coordination
-    status = { step: 'Manager Agent: Finalizing deliverables and notifications...', progress: 95 };
+    status = { step: 'Manager Agent: Finalizing deliverables and notifications...', progress: 90 };
     
-    await notifyUserActivity({
-      userId: input.userId,
-      analysisId,
-      status: 'completed',
-      summary: aiResult.summary,
-    });
+    // 🚀 PARALLEL EXECUTION: Save analysis and notify user simultaneously  
+    await Promise.all([
+      // Exporter Agent - Save to database
+      saveAnalysisActivity(analysisData),
+      
+      // Manager Agent - User notification
+      notifyUserActivity({
+        userId: input.userId,
+        analysisId,
+        status: 'completed',
+        summary: aiResult.summary,
+      })
+    ]);
 
-    // Cleanup temporary files
-    await cleanupTempFilesActivity({ analysisId });
-
+    // Cleanup and final status (can run cleanup in background)
+    const cleanupPromise = cleanupTempFilesActivity({ analysisId });
+    
     status = { step: 'Analysis Complete: Ready for download and export', progress: 100 };
+    
+    // Ensure cleanup completes
+    await cleanupPromise;
     
     log.info('Document analysis completed successfully', { analysisId });
 

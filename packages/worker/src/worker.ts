@@ -95,25 +95,28 @@ async function createWorker(connection: NativeConnection): Promise<Worker> {
 
     console.log(`   Using workflows path: ${workflowsPath}`);
 
-    // Minimal worker configuration for maximum Temporal Cloud compatibility
+    // Create and configure Temporal worker with enhanced performance settings
     const worker = await Worker.create({
-      connection,
+      connection: connection,
       namespace: config.temporal.namespace,
-      taskQueue: config.worker.taskQueue,
+      taskQueue: process.env.TEMPORAL_TASK_QUEUE || 'pip-ai-task-queue',
       workflowsPath,
       activities,
-      // Conservative settings for Temporal Cloud
-      maxConcurrentActivityTaskExecutions: 1,
-      maxConcurrentWorkflowTaskExecutions: 1,
-      // Disable advanced features that might cause issues
+      // Enhanced performance settings for construction document processing
+      maxConcurrentActivityTaskExecutions: 3,  // Increased from 1 to 3
+      maxConcurrentWorkflowTaskExecutions: 2,  // Increased from 1 to 2
+      // Heartbeat settings for long-running activities
+      maxHeartbeatThrottleInterval: '30s',
+      defaultHeartbeatThrottleInterval: '15s',
+      // Disable advanced features for stability
       enableSDKTracing: false,
-      debugMode: false,
+      debugMode: false
     });
 
     console.log('✅ Worker created successfully');
-    console.log(`   Task Queue: ${config.worker.taskQueue}`);
-    console.log(`   Max Concurrent Activities: 1`);
-    console.log(`   Max Concurrent Workflows: 1`);
+    console.log(`   Task Queue: ${process.env.TEMPORAL_TASK_QUEUE || 'pip-ai-task-queue'}`);
+    console.log(`   Max Concurrent Activities: 3`);
+    console.log(`   Max Concurrent Workflows: 2`);
     
     return worker;
 
