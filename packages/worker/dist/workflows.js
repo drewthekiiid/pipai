@@ -67,11 +67,7 @@ export async function analyzeDocumentWorkflow(input) {
         status = { step: 'File Reader Agent: Extracting text from construction plans...', progress: 20 };
         await sleep(400);
         status = { step: 'File Reader Agent: Analyzing document structure and content...', progress: 25 };
-        const textResult = await extractTextActivity({
-            filePath: downloadResult.localPath,
-            fileType: downloadResult.fileType,
-            options: input.options,
-        });
+        const textResult = await extractTextActivity(downloadResult.localPath);
         // Step 3 & 4: Trade Mapper + Estimator Agents - PARALLEL PROCESSING
         status = { step: 'Trade Mapper Agent: Scanning for CSI divisions and trades...', progress: 35 };
         if (status.canceled)
@@ -86,7 +82,7 @@ export async function analyzeDocumentWorkflow(input) {
             (async () => {
                 log.info('Starting embeddings generation in parallel', { analysisId });
                 return await generateEmbeddingsActivity({
-                    text: textResult.extractedText,
+                    text: textResult,
                     userId: input.userId,
                 });
             })(),
@@ -98,9 +94,9 @@ export async function analyzeDocumentWorkflow(input) {
                 await sleep(200);
                 status = { step: 'Estimator Agent: Generating trade detection and scope of work...', progress: 75 };
                 return await runLongAIAnalysis({
-                    text: textResult.extractedText,
+                    text: textResult,
                     analysisType: input.analysisType,
-                    metadata: textResult.metadata,
+                    metadata: { pageCount: 0, processingTime: 0, processingMethod: 'unstructured-parallel' }, // Simplified metadata
                 });
             })()
         ]);
@@ -113,15 +109,15 @@ export async function analyzeDocumentWorkflow(input) {
             analysisId,
             userId: input.userId,
             fileName: input.fileName,
-            extractedText: textResult.extractedText,
+            extractedText: textResult,
             summary: aiResult.summary,
             insights: aiResult.insights,
             embeddings: embeddingsResult.embeddings,
             metadata: {
-                ...textResult.metadata,
                 fileType: downloadResult.fileType,
                 fileSize: downloadResult.fileSize,
                 processingTime: Date.now(),
+                processingMethod: 'unstructured-parallel',
             },
         };
         status = { step: 'Manager Agent: Finalizing deliverables and notifications...', progress: 90 };
@@ -146,7 +142,7 @@ export async function analyzeDocumentWorkflow(input) {
         return {
             analysisId,
             status: 'success',
-            extractedText: textResult.extractedText,
+            extractedText: textResult,
             summary: aiResult.summary,
             insights: aiResult.insights,
             embeddings: embeddingsResult.embeddings,

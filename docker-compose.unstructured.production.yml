@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  unstructured-api:
+    image: quay.io/unstructured-io/unstructured-api:latest
+    container_name: unstructured-api-prod
+    ports:
+      - "8000:8000"
+    environment:
+      - UNSTRUCTURED_API_KEY=${UNSTRUCTURED_API_KEY:-your-api-key-here}
+      - UNSTRUCTURED_HOST=0.0.0.0
+      - UNSTRUCTURED_PORT=8000
+      # Production optimizations
+      - PYTHONUNBUFFERED=1
+      - WORKERS=4
+      - TIMEOUT=300
+    volumes:
+      - ./tmp:/tmp/unstructured
+      - unstructured-logs:/var/log/unstructured
+    restart: always  # More aggressive restart policy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthcheck"]
+      interval: 15s    # More frequent health checks
+      timeout: 5s      # Shorter timeout
+      retries: 5       # More retries before giving up
+      start_period: 30s # Allow 30s for initial startup
+    deploy:
+      resources:
+        limits:
+          memory: 4G     # Limit memory usage
+          cpus: '2.0'    # Limit CPU usage
+        reservations:
+          memory: 2G     # Reserve minimum memory
+          cpus: '1.0'    # Reserve minimum CPU
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    networks:
+      - unstructured-net
+
+  # Optional: Monitoring service
+  watchtower:
+    image: containrrr/watchtower
+    container_name: unstructured-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 86400 --cleanup unstructured-api-prod
+    restart: unless-stopped
+    networks:
+      - unstructured-net
+
+volumes:
+  unstructured-logs:
+
+networks:
+  unstructured-net:
+    driver: bridge 

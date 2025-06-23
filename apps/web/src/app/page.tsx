@@ -4,7 +4,7 @@ import type React from "react"
 
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Download, ExternalLink, FileText, Paperclip, Send, Upload, X } from "lucide-react"
+import { FileText, Paperclip, Send, Upload, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 interface StagedFile {
@@ -33,11 +33,14 @@ interface Message {
   agent?: string
   agentId?: string
   status?: "processing" | "complete" | "error" | "waiting"
-  deliverables?: {
-    name: string
-    type: "pdf" | "xlsx" | "json"
-    downloadUrl?: string
-  }[]
+  analysisResult?: {
+    summary: string
+    insights: string[]
+    extractedText?: string
+    keyTopics?: string[]
+    status?: string
+    analysisId?: string
+  }
   stepNumber?: number
   totalSteps?: number
 }
@@ -158,7 +161,7 @@ export default function FuturisticChat() {
         updateAgentStatus("manager", "processing", true)
         
         const uploadMessage: Message = {
-          id: Date.now().toString(),
+          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           type: "agent-step",
           content: `Uploading ${stagedFile.name} to secure storage and starting analysis...`,
           timestamp: new Date(),
@@ -200,7 +203,7 @@ export default function FuturisticChat() {
     } catch (error) {
       console.error('Workflow failed:', error)
       const errorMessage: Message = {
-        id: Date.now().toString(),
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         type: "agent-step",
         content: `❌ Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         timestamp: new Date(),
@@ -226,66 +229,47 @@ export default function FuturisticChat() {
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
+          console.log('📡 SSE event received:', data)
           
-          // Map backend progress to agent updates
           if (data.type === 'progress') {
-            const agentMap: Record<string, string> = {
-              'file_processing': 'file-reader',
-              'content_extraction': 'file-reader', 
-              'trade_analysis': 'trade-mapper',
-              'cost_estimation': 'estimator',
-              'report_generation': 'exporter',
-            }
-            
-            const agentId = agentMap[data.step] || 'manager'
-            const agentName = agents.find(a => a.id === agentId)?.name || 'System'
-            
-            updateAgentStatus(agentId, "processing", true)
+            // Update agent status based on progress
+            updateAgentStatus("file-reader", "processing", true)
             
             const progressMessage: Message = {
-              id: `${Date.now()}-${Math.random()}`,
+              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: "agent-step",
-              content: data.message,
+              content: data.message || data.step,
               timestamp: new Date(),
-              agent: agentName,
-              agentId: agentId,
+              agent: data.agent || "File Reader",
+              agentId: "file-reader",
               status: "processing",
             }
-            setMessages((prev) => [...prev, progressMessage])
-          }
-          
-          if (data.type === 'complete') {
-            // Mark all agents as complete
+            setMessages(prev => [...prev, progressMessage])
+          } else if (data.type === 'complete') {
+            // Mark all agents as complete and show results
             setAgents((prev) => prev.map((agent) => ({ ...agent, status: "complete", isActive: false })))
             
             const completionMessage: Message = {
-              id: `${Date.now()}-${Math.random()}`,
+              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: "agent-step",
-              content: "✅ Analysis complete! All deliverables have been generated successfully.",
+              content: data.message || "✅ Analysis complete! Here are the results:",
               timestamp: new Date(),
               agent: "Manager",
               agentId: "manager",
               status: "complete",
-              deliverables: data.results?.map((result: Record<string, unknown>) => ({
-                name: String(result.filename),
-                type: String(result.type),
-                downloadUrl: String(result.downloadUrl),
-              })) || [
-                { name: "Analysis_Report.pdf", type: "pdf" },
-                { name: "Cost_Estimates.xlsx", type: "xlsx" },
-                { name: "Data_Export.json", type: "json" },
-              ],
+              analysisResult: data.analysisResult || {
+                summary: "Construction document analysis completed successfully.",
+                insights: ["Document processed", "Analysis complete"]
+              },
             }
-            setMessages((prev) => [...prev, completionMessage])
+            setMessages(prev => [...prev, completionMessage])
             
             setIsProcessing(false)
             eventSource.close()
             setEventSource(null)
-          }
-          
-          if (data.type === 'error') {
+          } else if (data.type === 'error') {
             const errorMessage: Message = {
-              id: `${Date.now()}-${Math.random()}`,
+              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: "agent-step",
               content: `❌ Analysis failed: ${data.message}`,
               timestamp: new Date(),
@@ -293,14 +277,19 @@ export default function FuturisticChat() {
               agentId: "manager",
               status: "error",
             }
-            setMessages((prev) => [...prev, errorMessage])
+            setMessages(prev => [...prev, errorMessage])
             
             setIsProcessing(false)
             setAgents((prev) => prev.map((agent) => ({ ...agent, status: "error", isActive: false })))
             eventSource.close()
             setEventSource(null)
+          } else if (data.type === 'status') {
+            // Handle status updates (just log for now)
+            console.log(`📊 Workflow status: ${data.status}`)
+          } else if (data.workflowId && data.message === 'Connected to workflow stream') {
+            // Handle connected event
+            console.log(`🔗 Connected to workflow stream: ${data.workflowId}`)
           }
-          
         } catch (err) {
           console.error('Failed to parse SSE data:', err)
         }
@@ -322,32 +311,248 @@ export default function FuturisticChat() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (stagedFiles.length === 0 && !input.trim()) return
+    await handleSendMessage()
+  }
 
-    // Create user message
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      type: "user",
-      content: input || "Process uploaded files",
-      timestamp: new Date(),
-      files: stagedFiles.length > 0 ? [...stagedFiles] : undefined,
+  const handleSendMessage = async () => {
+    if (!input.trim() && stagedFiles.length === 0) return
+
+    try {
+      setIsProcessing(true)
+      
+      // Clear input immediately
+      const currentInput = input
+      setInput("")
+
+      // Create user message
+      const userMessage: Message = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: "user",
+        content: currentInput || "Process uploaded files",
+        timestamp: new Date(),
+        files: stagedFiles.length > 0 ? [...stagedFiles] : undefined,
+      }
+
+      setMessages(prev => [...prev, userMessage])
+      
+      // If we have files, start document analysis workflow
+      if (stagedFiles.length > 0) {
+        await handleDocumentAnalysis(currentInput, userMessage)
+      } else {
+        // Handle chat-only message (follow-up questions)
+        await handleChatMessage(currentInput, userMessage)
+      }
+
+    } catch (error) {
+      console.error("Error sending message:", error)
+      
+      const errorMessage: Message = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: "agent-step",
+        content: `❌ Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date(),
+        agent: "Manager",
+        agentId: "manager",
+        status: "error",
+      }
+      setMessages(prev => [...prev, errorMessage])
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  /**
+   * Handle document analysis workflow (file upload)
+   */
+  const handleDocumentAnalysis = async (currentInput: string, userMessage: Message) => {
+    for (const stagedFile of stagedFiles) {
+      const uploadMessage: Message = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: "agent-step",
+        content: `Uploading ${stagedFile.name} to secure storage and starting analysis...`,
+        timestamp: new Date(),
+        agent: "Manager",
+        agentId: "manager",
+        status: "processing",
+      }
+      setMessages(prev => [...prev, uploadMessage])
+
+      const formData = new FormData()
+      formData.append("file", stagedFile.file)
+      formData.append("userId", "demo-user")
+      formData.append("prompt", currentInput || "Analyze this construction document")
+
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      
+      // Start streaming for this workflow
+      if (result.workflowId) {
+        console.log("Starting SSE stream for workflow:", result.workflowId)
+        
+        // Start SSE streaming to get real-time progress
+        const newEventSource = new EventSource(`/api/stream/${result.workflowId}`)
+        setEventSource(newEventSource)
+        
+        newEventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            console.log('📡 SSE event received:', data)
+            
+            if (data.type === 'progress') {
+              // Update agent status based on progress
+              updateAgentStatus("file-reader", "processing", true)
+              
+              const progressMessage: Message = {
+                id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                type: "agent-step",
+                content: data.message || data.step,
+                timestamp: new Date(),
+                agent: data.agent || "File Reader",
+                agentId: "file-reader",
+                status: "processing",
+              }
+              setMessages(prev => [...prev, progressMessage])
+            } else if (data.type === 'complete') {
+              // Mark all agents as complete and show results
+              setAgents((prev) => prev.map((agent) => ({ ...agent, status: "complete", isActive: false })))
+              
+              const completionMessage: Message = {
+                id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                type: "agent-step",
+                content: data.message || "✅ Analysis complete! Here are the results:",
+                timestamp: new Date(),
+                agent: "Manager",
+                agentId: "manager",
+                status: "complete",
+                analysisResult: data.analysisResult || {
+                  summary: "Construction document analysis completed successfully.",
+                  insights: ["Document processed", "Analysis complete"]
+                },
+              }
+              setMessages(prev => [...prev, completionMessage])
+              
+              setIsProcessing(false)
+              newEventSource.close()
+              setEventSource(null)
+            } else if (data.type === 'error') {
+              const errorMessage: Message = {
+                id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                type: "agent-step",
+                content: `❌ Analysis failed: ${data.message}`,
+                timestamp: new Date(),
+                agent: "Manager",
+                agentId: "manager",
+                status: "error",
+              }
+              setMessages(prev => [...prev, errorMessage])
+              
+              setIsProcessing(false)
+              setAgents((prev) => prev.map((agent) => ({ ...agent, status: "error", isActive: false })))
+              newEventSource.close()
+              setEventSource(null)
+            } else if (data.type === 'status') {
+              // Handle status updates (just log for now)
+              console.log(`📊 Workflow status: ${data.status}`)
+            } else if (data.workflowId && data.message === 'Connected to workflow stream') {
+              // Handle connected event
+              console.log(`🔗 Connected to workflow stream: ${data.workflowId}`)
+            }
+          } catch (err) {
+            console.error('Failed to parse SSE data:', err)
+          }
+        }
+        
+        newEventSource.onerror = (error) => {
+          console.error('EventSource failed:', error)
+          newEventSource.close()
+          setEventSource(null)
+          setIsProcessing(false)
+          setAgents((prev) => prev.map((agent) => ({ ...agent, status: "error", isActive: false })))
+        }
+      }
+      
+      // Reset agents and start monitoring
+      setAgents((prev) => prev.map((agent) => ({ ...agent, status: "idle", isActive: false })))
     }
 
-    setMessages((prev) => [...prev, userMessage])
+    // Clear staged files
+    setStagedFiles([])
+  }
 
-    // Start real workflow if files are staged
-    if (stagedFiles.length > 0) {
-      await startRealWorkflow(stagedFiles)
-      setStagedFiles([]) // Clear staged files after submission
+  /**
+   * Handle chat-only messages (follow-up questions)
+   */
+  const handleChatMessage = async (currentInput: string, userMessage: Message) => {
+    // Find the most recent analysis results from messages
+    const lastAnalysisMessage = messages
+      .slice()
+      .reverse()
+      .find(msg => msg.type === "agent-step" && msg.analysisResult)
+
+    console.log('💬 Sending chat message:', {
+      message: currentInput,
+      hasAnalysisContext: !!lastAnalysisMessage?.analysisResult
+    })
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: currentInput,
+          analysisContext: lastAnalysisMessage?.analysisResult || null
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Chat failed: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      
+      // Create assistant response message
+      const assistantMessage: Message = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: "assistant",
+        content: result.response,
+        timestamp: new Date(),
+        agent: result.type === 'scope' ? "EstimAItor" : "Assistant",
+        agentId: result.type === 'scope' ? "estimator" : "assistant",
+        status: "complete",
+      }
+
+      setMessages(prev => [...prev, assistantMessage])
+
+    } catch (error) {
+      console.error("❌ Chat request failed:", error)
+      
+      const errorMessage: Message = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: "agent-step",
+        content: `❌ Chat failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date(),
+        agent: "Assistant",
+        agentId: "assistant",
+        status: "error",
+      }
+      setMessages(prev => [...prev, errorMessage])
     }
-
-    setInput("")
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
-      handleSubmit(e as unknown as React.FormEvent)
+      handleSendMessage()
     }
   }
 
@@ -370,7 +575,7 @@ export default function FuturisticChat() {
     setAgents((prev) => prev.map((agent) => ({ ...agent, status: "idle", isActive: false })))
 
     const abortMessage: Message = {
-      id: Date.now().toString(),
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       type: "system",
       content: "Workflow aborted by user. All agent processes have been terminated.",
       timestamp: new Date(),
@@ -509,24 +714,54 @@ export default function FuturisticChat() {
                     <p className="text-base leading-relaxed font-light flex-1">{message.content}</p>
                   </div>
 
-                  {message.deliverables && message.deliverables.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      <div className="text-sm font-medium opacity-90">Deliverables:</div>
-                      {message.deliverables.map((deliverable, index) => (
-                        <div key={index} className="flex items-center justify-between p-2 bg-white/10 rounded-lg">
-                          <span className="text-sm">{deliverable.name}</span>
-                          <div className="flex space-x-2">
-                            <Button size="sm" variant="ghost" className="text-white hover:bg-white/20">
-                              <Download className="w-3 h-3 mr-1" />
-                              Download
-                            </Button>
-                            <Button size="sm" variant="ghost" className="text-white hover:bg-white/20">
-                              <ExternalLink className="w-3 h-3 mr-1" />
-                              Smartsheet
-                            </Button>
+                  {message.analysisResult && (
+                    <div className="mt-4 space-y-3">
+                      <div className="text-sm font-medium opacity-90">Analysis Results:</div>
+                      
+                      <div className="p-3 bg-white/10 rounded-lg">
+                        <div className="text-sm font-medium mb-2">Summary:</div>
+                        <p className="text-sm opacity-90 leading-relaxed">{message.analysisResult.summary}</p>
+                      </div>
+                      
+                      {message.analysisResult.insights.length > 0 && (
+                        <div className="p-3 bg-white/10 rounded-lg">
+                          <div className="text-sm font-medium mb-2">Key Insights:</div>
+                          <ul className="text-sm opacity-90 space-y-1">
+                            {message.analysisResult.insights.map((insight, index) => (
+                              <li key={index} className="flex items-start space-x-2">
+                                <span className="text-xs mt-1.5">•</span>
+                                <span>{insight}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {message.analysisResult.extractedText && message.analysisResult.extractedText.length > 0 && (
+                        <div className="p-3 bg-white/10 rounded-lg">
+                          <div className="text-sm font-medium mb-2">Detailed Analysis:</div>
+                          <div className="text-sm opacity-90 leading-relaxed max-h-96 overflow-y-auto">
+                            {message.analysisResult.extractedText.split('\n').map((line, index) => (
+                              <div key={index} className={`${line.trim() === '' ? 'h-2' : ''} ${line.includes('===') ? 'font-semibold text-white' : ''} ${line.includes('DIVISION') || line.includes('CSI') ? 'font-medium' : ''}`}>
+                                {line || '\u00A0'}
+                              </div>
+                            ))}
                           </div>
                         </div>
-                      ))}
+                      )}
+                      
+                      {message.analysisResult.keyTopics && message.analysisResult.keyTopics.length > 0 && (
+                        <div className="p-3 bg-white/10 rounded-lg">
+                          <div className="text-sm font-medium mb-2">Key Topics:</div>
+                          <div className="flex flex-wrap gap-2">
+                            {message.analysisResult.keyTopics.map((topic, index) => (
+                              <span key={index} className="px-2 py-1 bg-white/20 rounded text-xs">
+                                {topic}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

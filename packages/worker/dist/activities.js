@@ -7,6 +7,7 @@ import * as crypto from 'crypto';
 import { config } from 'dotenv';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { createUnstructuredClient } from './unstructured-client.js';
 // Load environment variables
 config({ path: '../../.env' });
 config({ path: '../../.env.local', override: true });
@@ -31,6 +32,7 @@ export async function downloadFileActivity(input) {
         await fs.mkdir(tempDir, { recursive: true });
         let fileContent;
         let fileName;
+        let fileBuffer = null;
         if (input.fileUrl.startsWith('http')) {
             // Check if this is an S3 URL
             if (input.fileUrl.includes('.s3.') || input.fileUrl.includes('s3.amazonaws.com')) {
@@ -73,22 +75,23 @@ export async function downloadFileActivity(input) {
                     if (!response.Body) {
                         throw new Error('No file content received from S3');
                     }
-                    // Convert AWS SDK stream to buffer
-                    const chunks = [];
+                    // Convert AWS SDK stream to buffer (keep as binary for PDFs)
                     // Handle the stream properly for AWS SDK
                     if (response.Body instanceof Buffer) {
-                        fileContent = response.Body.toString();
+                        fileBuffer = response.Body;
                     }
                     else {
                         // Handle readable stream
+                        const chunks = [];
                         const stream = response.Body;
                         for await (const chunk of stream) {
                             chunks.push(Buffer.from(chunk));
                         }
-                        fileContent = Buffer.concat(chunks).toString();
+                        fileBuffer = Buffer.concat(chunks);
                     }
                     fileName = path.basename(objectKey) || 'document.txt';
-                    console.log(`[${activityId}] S3 download successful: ${fileContent.length} characters`);
+                    fileContent = fileBuffer.toString(); // Keep for compatibility but write buffer to disk
+                    console.log(`[${activityId}] S3 download successful: ${fileBuffer.length} bytes`);
                 }
                 catch (s3Error) {
                     console.error(`[${activityId}] S3 download failed:`, s3Error);
@@ -112,7 +115,18 @@ export async function downloadFileActivity(input) {
             fileContent = `Mock file content for ${fileName}\nUser: ${input.userId}\nAnalysis: ${input.analysisId}`;
         }
         const localPath = path.join(tempDir, fileName);
-        await fs.writeFile(localPath, fileContent);
+        // For S3 files, write the binary buffer directly to preserve PDF structure
+        if (input.fileUrl.includes('.s3.') || input.fileUrl.includes('s3.amazonaws.com')) {
+            if (fileBuffer) {
+                await fs.writeFile(localPath, fileBuffer);
+            }
+            else {
+                await fs.writeFile(localPath, fileContent);
+            }
+        }
+        else {
+            await fs.writeFile(localPath, fileContent);
+        }
         // Get file stats
         const stats = await fs.stat(localPath);
         const hash = crypto.createHash('sha256').update(fileContent).digest('hex');
@@ -133,85 +147,84 @@ export async function downloadFileActivity(input) {
     }
 }
 /**
- * Extract text content from various file formats
+ * Extract text content from various file formats using Unstructured-IO
  */
-export async function extractTextActivity(input) {
-    const { activityId } = getActivityInfo();
-    console.log(`[${activityId}] Extracting text from: ${input.filePath}`);
-    const startTime = Date.now();
+export async function extractTextActivity(filePath) {
+    console.log(`Starting text extraction for: ${filePath}`);
     try {
-        let extractedText = '';
-        let pageCount = 1;
-        let imageCount = 0;
-        let language = 'en';
-        const metadata = {};
-        // File type specific processing
-        switch (input.fileType) {
-            case 'pdf':
-                console.log(`[${activityId}] Processing construction PDF with enhanced parsing...`);
-                try {
-                    // Read PDF buffer
-                    const pdfBuffer = await fs.readFile(input.filePath);
-                    // Parse PDF with pdf-parse
-                    const pdfParse = await import('pdf-parse');
-                    const pdfData = await pdfParse.default(pdfBuffer);
-                    const rawText = pdfData.text || '';
-                    pageCount = pdfData.numpages || 1;
-                    console.log(`[${activityId}] PDF parsed: ${pageCount} pages, ${rawText.length} characters raw`);
-                    // Enhanced construction document processing
-                    extractedText = enhanceConstructionPDFText(rawText, pageCount);
-                    console.log(`[${activityId}] Construction PDF processing completed: ${extractedText.length} characters enhanced`);
-                }
-                catch (pdfError) {
-                    console.log(`[${activityId}] PDF parsing failed, using demo content: ${pdfError}`);
-                    // Fallback to realistic demo content with construction context
-                    extractedText = generateConstructionFallbackContent();
-                    pageCount = 1;
-                    metadata.processingError = pdfError instanceof Error ? pdfError.message : String(pdfError);
-                }
-                break;
-            case 'docx':
-                // For now, treat as text - could add docx parsing later
-                const docContent = await fs.readFile(input.filePath, 'utf-8');
-                extractedText = `[Word Document]\n${docContent}`;
-                break;
-            case 'txt':
-            case 'md':
-                extractedText = await fs.readFile(input.filePath, 'utf-8');
-                break;
-            default:
-                // Try to read as text
-                try {
-                    extractedText = await fs.readFile(input.filePath, 'utf-8');
-                }
-                catch {
-                    throw new Error(`Unsupported file type: ${input.fileType}`);
-                }
+        // Initialize Unstructured client
+        const client = createUnstructuredClient();
+        // Check service health first
+        const isHealthy = await client.healthCheck();
+        if (!isHealthy) {
+            throw new Error('Unstructured.io service is not available. Please ensure the service is running at the configured URL.');
         }
-        // Detect language if requested
-        if (input.options?.detectLanguage) {
-            language = detectLanguage(extractedText);
+        // Check file size to determine processing strategy
+        const fs = require('fs');
+        const stats = await fs.promises.stat(filePath);
+        const fileSizeMB = stats.size / (1024 * 1024);
+        const isLargePDF = filePath.toLowerCase().endsWith('.pdf') && fileSizeMB > 20; // 20MB threshold
+        console.log(`File size: ${fileSizeMB.toFixed(2)}MB`);
+        console.log(`Using ${isLargePDF ? 'large PDF optimization' : 'standard parallel processing'}`);
+        // Process document with appropriate method
+        let result;
+        if (isLargePDF) {
+            // Use maximum parallel optimization for large PDFs
+            result = await client.processLargePDF(filePath, {
+                maxConcurrency: 15, // Maximum allowed
+                allowPartialFailure: true,
+                extractTables: true
+            });
         }
-        // Extract images if requested
-        if (input.options?.extractImages) {
-            imageCount = countImages(extractedText);
+        else {
+            // Use standard parallel processing (still much faster than before)
+            result = await client.processDocument(filePath, {
+                strategy: 'fast',
+                extractImages: false,
+                extractTables: true,
+                coordinates: false,
+                includePage: false,
+                enableParallelProcessing: true,
+                concurrencyLevel: 10,
+                allowPartialFailure: true
+            });
         }
-        const processingTime = Date.now() - startTime;
-        console.log(`[${activityId}] Text extraction completed in ${processingTime}ms`);
-        return {
-            extractedText,
-            metadata: {
-                pageCount,
-                language,
-                imageCount,
-                processingTime,
-                ...metadata,
-            },
-        };
+        const { extractedText, tables, metadata } = result;
+        // Log processing results
+        console.log(`Extraction completed successfully:`);
+        console.log(`- Pages: ${metadata.pageCount}`);
+        console.log(`- Elements: ${metadata.elementCount}`);
+        console.log(`- Text length: ${extractedText.length} characters`);
+        console.log(`- Tables found: ${tables.length}`);
+        console.log(`- Processing time: ${metadata.processingTime}ms`);
+        console.log(`- Parallel processing: enabled`);
+        // Validate extraction
+        if (!extractedText || extractedText.trim().length === 0) {
+            throw new Error('No text was extracted from the document. The file may be corrupted, empty, or in an unsupported format.');
+        }
+        // Combine text and table content for comprehensive analysis
+        let combinedText = extractedText;
+        if (tables.length > 0) {
+            console.log(`Including ${tables.length} tables in the analysis`);
+            const tableTexts = tables.map((table, index) => `\n\n[TABLE ${index + 1} - Page ${table.pageNumber}]\n${table.text}`).join('');
+            combinedText += tableTexts;
+        }
+        return combinedText;
     }
     catch (error) {
-        console.error(`[${activityId}] Text extraction failed:`, error);
-        throw new Error(`Failed to extract text: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        console.error('Text extraction failed:', error);
+        if (error instanceof Error) {
+            if (error.message.includes('service is not available')) {
+                throw new Error('Document processing service unavailable. Please check service status and try again.');
+            }
+            else if (error.message.includes('timeout')) {
+                throw new Error('Document processing timed out. The file may be too large or complex.');
+            }
+            else {
+                throw new Error(`Document processing failed: ${error.message}`);
+            }
+        }
+        throw new Error('Document processing failed due to an unknown error.');
     }
 }
 /**
@@ -246,8 +259,8 @@ export async function runAIAnalysisActivity(input) {
     try {
         // Check if OpenAI API key is available
         if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('sk-your-')) {
-            console.log(`[${activityId}] No valid OpenAI API key found (current: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 20) + '...' : 'NOT_SET'}), using enhanced mock analysis`);
-            return generateConstructionAnalysis(input.text);
+            console.error(`[${activityId}] No valid OpenAI API key found (current: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 20) + '...' : 'NOT_SET'})`);
+            throw new Error('OpenAI API key not configured - cannot generate AI analysis. Please configure OPENAI_API_KEY environment variable.');
         }
         console.log(`[${activityId}] Initializing GPT-4o for construction analysis...`);
         // Initialize OpenAI client
@@ -558,9 +571,8 @@ Now analyze this construction document:`;
         return structuredAnalysis;
     }
     catch (error) {
-        console.error(`[${activityId}] GPT-4o analysis failed, falling back to enhanced mock:`, error);
-        // Fallback to enhanced mock analysis if API fails
-        return generateConstructionAnalysis(input.text);
+        console.error(`[${activityId}] GPT-4o analysis failed:`, error);
+        throw new Error(`AI analysis failed: ${error instanceof Error ? error.message : 'Unknown OpenAI error'}. No fallback analysis will be generated.`);
     }
 }
 /**
@@ -665,44 +677,6 @@ function countImages(text) {
     return (text.match(/\[image\]|\[img\]|\!\[/g) || []).length;
 }
 /**
- * Generate enhanced construction analysis (fallback when no API key)
- */
-function generateConstructionAnalysis(text) {
-    // Enhanced construction-focused analysis
-    const detectedTrades = [
-        'General Conditions (01)',
-        'Concrete & Foundations (03)',
-        'Masonry (04)',
-        'Structural Steel (05)',
-        'Carpentry & Millwork (06)',
-        'Thermal & Moisture Protection (07)',
-        'Doors & Windows (08)',
-        'Finishes (09)',
-        'Electrical (26)',
-        'Plumbing (22)',
-        'HVAC (23)'
-    ];
-    const scopeItems = [
-        'Site preparation and mobilization',
-        'Foundation excavation and concrete placement',
-        'Structural steel erection and welding',
-        'Interior framing and drywall installation',
-        'Electrical rough-in and final connections',
-        'Plumbing installation and fixture mounting',
-        'HVAC ductwork and equipment installation',
-        'Flooring installation and final finishes'
-    ];
-    const estimatedValue = '$2,450,000';
-    const projectDuration = '18 months';
-    return {
-        summary: `Construction Document Analysis Complete - Identified ${detectedTrades.length} major trades with estimated project value of ${estimatedValue} over ${projectDuration}. All critical building systems have been detected and scoped according to CSI MasterFormat standards.`,
-        insights: detectedTrades,
-        keyTopics: scopeItems,
-        sentiment: 'positive',
-        complexity: 8,
-    };
-}
-/**
  * Parse GPT-4o construction analysis response into structured format
  */
 function parseConstructionAnalysis(analysisText) {
@@ -730,9 +704,15 @@ function parseConstructionAnalysis(analysisText) {
     const projectName = projectMatch ? projectMatch[1].trim() : 'Construction Project';
     const location = locationMatch ? locationMatch[1].trim() : 'Project Location';
     const estimatedValue = valueMatch ? valueMatch[0] : '$2,450,000';
-    // If no trades found, use fallback
+    // If no trades found, return with empty results - NO FALLBACK
     if (trades.length === 0) {
-        return generateConstructionAnalysis(analysisText);
+        return {
+            summary: 'GPT-4o analysis completed but no specific trades were detected in the response.',
+            insights: ['Analysis completed - specific trade detection may require document review'],
+            keyTopics: scopeItems.length > 0 ? scopeItems : ['Analysis requires further review'],
+            sentiment: 'neutral',
+            complexity: 5,
+        };
     }
     return {
         summary: `GPT-4o Construction Analysis - ${projectName} at ${location}. Identified ${trades.length} trades with estimated value ${estimatedValue}. Complete scope of work and material takeoffs generated with ${scopeItems.length} detailed scope items.`,
@@ -742,21 +722,17 @@ function parseConstructionAnalysis(analysisText) {
         complexity: Math.min(10, Math.max(5, trades.length)),
     };
 }
-function generateMockAnalysis(text, analysisType) {
-    // Legacy mock analysis - keeping for compatibility
-    return generateConstructionAnalysis(text);
-}
 /**
- * Enhanced construction PDF text processing
+ * Enhanced construction document text processing with Unstructured data
  */
-function enhanceConstructionPDFText(rawText, pageCount) {
+function enhanceConstructionDocumentText(rawText, pageCount, tables, images, layout) {
     if (!rawText || rawText.length < 10) {
-        return generateConstructionFallbackContent();
+        throw new Error('Document text is too short or empty - cannot enhance invalid content');
     }
-    console.log('[PDF Enhancement] Starting construction document text processing...');
+    console.log('[Document Enhancement] Starting construction document text processing with Unstructured data...');
     // Clean and structure the text for construction analysis
     let processedText = rawText;
-    // Step 1: Clean up common PDF extraction artifacts
+    // Step 1: Clean up common extraction artifacts
     processedText = processedText
         .replace(/\s+/g, ' ') // Normalize whitespace
         .replace(/\n\s*\n\s*\n/g, '\n\n') // Clean up excessive line breaks
@@ -764,7 +740,7 @@ function enhanceConstructionPDFText(rawText, pageCount) {
     // Step 2: Detect construction document elements
     const documentStructure = analyzeConstructionDocument(processedText);
     // Step 3: Build enhanced document
-    let enhancedText = `CONSTRUCTION DOCUMENT ANALYSIS\n`;
+    let enhancedText = `CONSTRUCTION DOCUMENT ANALYSIS (UNSTRUCTURED-IO ENHANCED)\n`;
     enhancedText += `========================================\n\n`;
     // Add document metadata
     enhancedText += `DOCUMENT METADATA:\n`;
@@ -776,6 +752,18 @@ function enhanceConstructionPDFText(rawText, pageCount) {
     }
     if (documentStructure.sheetNumbers.length > 0) {
         enhancedText += `- Sheet Numbers: ${documentStructure.sheetNumbers.join(', ')}\n`;
+    }
+    // Add Unstructured-IO specific enhancements
+    if (tables && tables.length > 0) {
+        enhancedText += `- Tables Detected: ${tables.length}\n`;
+    }
+    if (images && images.length > 0) {
+        enhancedText += `- Images/Diagrams: ${images.length}\n`;
+    }
+    if (layout) {
+        enhancedText += `- Headers: ${layout.headers.length}\n`;
+        enhancedText += `- Sections: ${layout.sections.length}\n`;
+        enhancedText += `- Lists: ${layout.lists.length}\n`;
     }
     enhancedText += `\n`;
     // Add detected elements
@@ -793,18 +781,37 @@ function enhanceConstructionPDFText(rawText, pageCount) {
         });
         enhancedText += `\n`;
     }
+    // Add structured layout information
+    if (layout && layout.headers.length > 0) {
+        enhancedText += `DOCUMENT STRUCTURE:\n`;
+        layout.headers.slice(0, 10).forEach((header, index) => {
+            enhancedText += `${index + 1}. ${header}\n`;
+        });
+        enhancedText += `\n`;
+    }
+    // Add table information
+    if (tables && tables.length > 0) {
+        enhancedText += `EXTRACTED TABLES:\n`;
+        tables.forEach((table, index) => {
+            enhancedText += `Table ${index + 1} (Page ${table.pageNumber}):\n`;
+            enhancedText += `${table.text}\n\n`;
+        });
+    }
     // Add original content with improvements
     enhancedText += `DOCUMENT CONTENT:\n`;
     enhancedText += `========================================\n`;
     enhancedText += processedText;
     // Add construction-specific context
     enhancedText += `\n\nCONSTRUCTION ANALYSIS CONTEXT:\n`;
-    enhancedText += `This document is ready for comprehensive construction analysis including:\n`;
+    enhancedText += `This document has been processed with Unstructured-IO for comprehensive construction analysis including:\n`;
+    enhancedText += `- Advanced table extraction and structure recognition\n`;
+    enhancedText += `- Image and diagram detection with OCR\n`;
+    enhancedText += `- Layout-aware text extraction\n`;
     enhancedText += `- CSI MasterFormat trade identification\n`;
     enhancedText += `- Scope of work generation\n`;
     enhancedText += `- Material takeoff calculations\n`;
     enhancedText += `- Cost estimation and scheduling\n`;
-    console.log(`[PDF Enhancement] Construction processing completed: ${enhancedText.length} characters`);
+    console.log(`[Document Enhancement] Unstructured processing completed: ${enhancedText.length} characters`);
     return enhancedText;
 }
 /**
@@ -887,52 +894,5 @@ function analyzeConstructionDocument(text) {
     result.trades = [...new Set(result.trades)];
     result.materials = [...new Set(result.materials)].slice(0, 8);
     return result;
-}
-/**
- * Generate fallback content for construction documents
- */
-function generateConstructionFallbackContent() {
-    return `CONSTRUCTION DOCUMENT ANALYSIS
-========================================
-
-DOCUMENT METADATA:
-- Type: Construction Document (PDF processing fallback)
-- Status: Ready for AI analysis
-- Analysis Mode: Enhanced construction processing
-
-DETECTED CONTENT INDICATORS:
-- Professional construction document format
-- Contains architectural/engineering information
-- Suitable for trade detection and scope analysis
-
-CONSTRUCTION ANALYSIS CONTEXT:
-This document has been processed and is ready for comprehensive analysis including:
-
-CSI MASTERFORMAT ANALYSIS:
-- Division 01 - General Requirements
-- Division 03 - Concrete  
-- Division 04 - Masonry
-- Division 05 - Metals
-- Division 06 - Wood, Plastics, and Composites
-- Division 07 - Thermal and Moisture Protection
-- Division 08 - Openings
-- Division 09 - Finishes
-- Division 21 - Fire Suppression
-- Division 22 - Plumbing
-- Division 23 - HVAC
-- Division 26 - Electrical
-- Division 27 - Communications
-- Division 28 - Electronic Safety and Security
-
-SCOPE OF WORK GENERATION:
-- Trade-specific scope identification
-- Material takeoff calculations
-- Cost estimation support
-- Schedule coordination
-- Subcontractor package preparation
-
-READY FOR AI ANALYSIS:
-The document content is now optimized for GPT-4o construction analysis
-with enhanced trade detection and scope generation capabilities.`;
 }
 //# sourceMappingURL=activities.js.map

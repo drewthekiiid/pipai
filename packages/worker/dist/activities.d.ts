@@ -13,23 +13,6 @@ interface DownloadFileResult {
     fileSize: number;
     hash: string;
 }
-interface ExtractTextInput {
-    filePath: string;
-    fileType: string;
-    options?: {
-        extractImages?: boolean;
-        detectLanguage?: boolean;
-    };
-}
-interface ExtractTextResult {
-    extractedText: string;
-    metadata: {
-        pageCount?: number;
-        language?: string;
-        imageCount?: number;
-        processingTime: number;
-    };
-}
 interface GenerateEmbeddingsInput {
     text: string;
     userId: string;
@@ -56,9 +39,9 @@ interface AIAnalysisResult {
  */
 export declare function downloadFileActivity(input: DownloadFileInput): Promise<DownloadFileResult>;
 /**
- * Extract text content from various file formats
+ * Extract text content from various file formats using Unstructured-IO
  */
-export declare function extractTextActivity(input: ExtractTextInput): Promise<ExtractTextResult>;
+export declare function extractTextActivity(filePath: string): Promise<string>;
 /**
  * Generate embeddings for text using OpenAI or other embedding models
  */

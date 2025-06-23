@@ -75,21 +75,25 @@ async function createConnection() {
 async function createWorker(connection) {
     console.log('🏗️  Creating Temporal worker...');
     try {
-        // Determine the workflows path - in production, use absolute path to src directory
-        const workflowsPath = process.env.NODE_ENV === 'production'
-            ? '/app/packages/worker/src/workflows.ts'
-            : fileURLToPath(new URL('./workflows.ts', import.meta.url));
+        // Determine the workflows path based on execution context
+        const isCompiledVersion = __filename.includes('/dist/');
+        const workflowsPath = isCompiledVersion
+            ? fileURLToPath(new URL('./workflows.js', import.meta.url)) // Use .js for compiled version
+            : fileURLToPath(new URL('./workflows.ts', import.meta.url)); // Use .ts for dev/tsx version
         console.log(`   Using workflows path: ${workflowsPath}`);
-        // Create and configure Temporal worker with enhanced performance settings
+        // Create and configure Temporal worker with HIGH PERFORMANCE settings
         const worker = await Worker.create({
             connection: connection,
             namespace: config.temporal.namespace,
             taskQueue: process.env.TEMPORAL_TASK_QUEUE || 'pip-ai-task-queue',
             workflowsPath,
             activities,
-            // Enhanced performance settings for construction document processing
-            maxConcurrentActivityTaskExecutions: 3, // Increased from 1 to 3
-            maxConcurrentWorkflowTaskExecutions: 2, // Increased from 1 to 2
+            // HIGH PERFORMANCE settings for large construction document processing
+            maxConcurrentActivityTaskExecutions: 20, // MASSIVELY increased for parallel processing
+            maxConcurrentWorkflowTaskExecutions: 10, // More concurrent workflows
+            // Polling settings for faster task pickup
+            maxConcurrentActivityTaskPolls: 10, // More polling threads
+            maxConcurrentWorkflowTaskPolls: 5, // More workflow polling
             // Heartbeat settings for long-running activities
             maxHeartbeatThrottleInterval: '30s',
             defaultHeartbeatThrottleInterval: '15s',
@@ -97,10 +101,11 @@ async function createWorker(connection) {
             enableSDKTracing: false,
             debugMode: false
         });
-        console.log('✅ Worker created successfully');
+        console.log('✅ Worker created successfully - HIGH PERFORMANCE MODE');
         console.log(`   Task Queue: ${process.env.TEMPORAL_TASK_QUEUE || 'pip-ai-task-queue'}`);
-        console.log(`   Max Concurrent Activities: 3`);
-        console.log(`   Max Concurrent Workflows: 2`);
+        console.log(`   Max Concurrent Activities: 20 (PARALLEL PROCESSING)`);
+        console.log(`   Max Concurrent Workflows: 10`);
+        console.log(`   Activity Polls: 10 | Workflow Polls: 5`);
         return worker;
     }
     catch (error) {
