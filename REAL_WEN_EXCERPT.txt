@@ -1,0 +1,34 @@
+WEN GNG40 CONSTRUCTION PROJECT SPECIFICATIONS
+
+DIVISION 26 - ELECTRICAL
+26 50 00 Lighting
+- Interior fixtures: LED recessed downlights, 4000K, 90 CRI
+- Quantity: 240 fixtures
+- Exterior fixtures: LED wall packs, 5000K
+- Quantity: 28 fixtures
+- Emergency lighting: Battery backup LED
+- Quantity: 15 fixtures
+
+ELECTRICAL TAKEOFFS:
+- 400A Main Panel: 1 EA
+- 20A Circuit Breakers: 48 EA  
+- 12 AWG Wire: 15,000 LF
+- Duplex Receptacles: 185 EA
+- LED Fixtures: 240 EA
+- Exit Signs: 15 EA
+
+LABOR ESTIMATE:
+- Licensed Electrician: 520 hours @ $85/hr = $44,200
+- Electrical Helper: 360 hours @ $55/hr = $19,800
+- Total Labor: $64,000
+
+MATERIAL COST:
+- Main Panel: $8,500
+- Breakers: $4,800
+- Wire: $22,500
+- Receptacles: $3,700
+- LED Fixtures: $72,000
+- Conduit/Fittings: $15,500
+- Total Materials: $127,000
+
+TOTAL ELECTRICAL COST: $191,000
