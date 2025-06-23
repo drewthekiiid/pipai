@@ -149,165 +149,9 @@ export default function FuturisticChat() {
     setStagedFiles((prev) => prev.filter((file) => file.id !== id))
   }
 
-  // Real backend workflow integration
-  const startRealWorkflow = async (files: StagedFile[]) => {
-    setIsProcessing(true)
-    
-    try {
-      // Upload files sequentially and collect workflow IDs
-      const workflowIds: string[] = []
-      
-      for (const stagedFile of files) {
-        updateAgentStatus("manager", "processing", true)
-        
-        const uploadMessage: Message = {
-          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          type: "agent-step",
-          content: `Uploading ${stagedFile.name} to secure storage and starting analysis...`,
-          timestamp: new Date(),
-          agent: "Manager",
-          agentId: "manager",
-          status: "processing",
-        }
-        setMessages((prev) => [...prev, uploadMessage])
 
-        // Upload file using presigned URL (bypasses Vercel 4.5MB limit)
-        const { uploadFileDirect } = await import('@pip-ai/shared')
-        
-        const uploadResult = await uploadFileDirect(
-          stagedFile.file,
-          'demo-user', // In a real app, this would come from auth
-          (progress) => {
-            // Could update progress here if needed
-            console.log(`Upload progress: ${progress}%`)
-          }
-        )
 
-        workflowIds.push(uploadResult.workflow_id)
 
-        const uploadSuccessMessage: Message = {
-          id: `${Date.now()}-${Math.random()}`,
-          type: "agent-step",
-          content: `✅ ${stagedFile.name} uploaded successfully. Analysis workflow started (ID: ${uploadResult.workflow_id.slice(0, 8)}...)`,
-          timestamp: new Date(),
-          agent: "Manager",
-          agentId: "manager",
-          status: "complete",
-        }
-        setMessages((prev) => [...prev, uploadSuccessMessage])
-      }
-
-      // Stream progress for all workflows
-      await streamWorkflowProgress(workflowIds)
-      
-    } catch (error) {
-      console.error('Workflow failed:', error)
-      const errorMessage: Message = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        type: "agent-step",
-        content: `❌ Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        timestamp: new Date(),
-        agent: "Manager",
-        agentId: "manager",
-        status: "error",
-      }
-      setMessages((prev) => [...prev, errorMessage])
-      setIsProcessing(false)
-      setAgents((prev) => prev.map((agent) => ({ ...agent, status: "idle", isActive: false })))
-    }
-  }
-
-  // Stream workflow progress using Server-Sent Events
-  const streamWorkflowProgress = async (workflowIds: string[]) => {
-    try {
-      // For now, stream the first workflow (could be enhanced to handle multiple)
-      const workflowId = workflowIds[0]
-      
-      const eventSource = new EventSource(`/api/stream/${workflowId}`)
-      setEventSource(eventSource)
-      
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          console.log('📡 SSE event received:', data)
-          
-          if (data.type === 'progress') {
-            // Update agent status based on progress
-            updateAgentStatus("file-reader", "processing", true)
-            
-            const progressMessage: Message = {
-              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              type: "agent-step",
-              content: data.message || data.step,
-              timestamp: new Date(),
-              agent: data.agent || "File Reader",
-              agentId: "file-reader",
-              status: "processing",
-            }
-            setMessages(prev => [...prev, progressMessage])
-          } else if (data.type === 'complete') {
-            // Mark all agents as complete and show results
-            setAgents((prev) => prev.map((agent) => ({ ...agent, status: "complete", isActive: false })))
-            
-            const completionMessage: Message = {
-              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              type: "agent-step",
-              content: data.message || "✅ Analysis complete! Here are the results:",
-              timestamp: new Date(),
-              agent: "Manager",
-              agentId: "manager",
-              status: "complete",
-              analysisResult: data.analysisResult || {
-                summary: "Construction document analysis completed successfully.",
-                insights: ["Document processed", "Analysis complete"]
-              },
-            }
-            setMessages(prev => [...prev, completionMessage])
-            
-            setIsProcessing(false)
-            eventSource.close()
-            setEventSource(null)
-          } else if (data.type === 'error') {
-            const errorMessage: Message = {
-              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              type: "agent-step",
-              content: `❌ Analysis failed: ${data.message}`,
-              timestamp: new Date(),
-              agent: "Manager",
-              agentId: "manager",
-              status: "error",
-            }
-            setMessages(prev => [...prev, errorMessage])
-            
-            setIsProcessing(false)
-            setAgents((prev) => prev.map((agent) => ({ ...agent, status: "error", isActive: false })))
-            eventSource.close()
-            setEventSource(null)
-          } else if (data.type === 'status') {
-            // Handle status updates (just log for now)
-            console.log(`📊 Workflow status: ${data.status}`)
-          } else if (data.workflowId && data.message === 'Connected to workflow stream') {
-            // Handle connected event
-            console.log(`🔗 Connected to workflow stream: ${data.workflowId}`)
-          }
-        } catch (err) {
-          console.error('Failed to parse SSE data:', err)
-        }
-      }
-      
-      eventSource.onerror = (error) => {
-        console.error('EventSource failed:', error)
-        eventSource.close()
-        setEventSource(null)
-        setIsProcessing(false)
-        setAgents((prev) => prev.map((agent) => ({ ...agent, status: "error", isActive: false })))
-      }
-      
-    } catch (error) {
-      console.error('Failed to start streaming:', error)
-      setIsProcessing(false)
-    }
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -337,10 +181,10 @@ export default function FuturisticChat() {
       
       // If we have files, start document analysis workflow
       if (stagedFiles.length > 0) {
-        await handleDocumentAnalysis(currentInput, userMessage)
+        await handleDocumentAnalysis(currentInput)
       } else {
         // Handle chat-only message (follow-up questions)
-        await handleChatMessage(currentInput, userMessage)
+        await handleChatMessage(currentInput)
       }
 
     } catch (error) {
@@ -364,7 +208,7 @@ export default function FuturisticChat() {
   /**
    * Handle document analysis workflow (file upload)
    */
-  const handleDocumentAnalysis = async (currentInput: string, userMessage: Message) => {
+  const handleDocumentAnalysis = async (currentInput: string) => {
     for (const stagedFile of stagedFiles) {
       const uploadMessage: Message = {
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -490,7 +334,7 @@ export default function FuturisticChat() {
   /**
    * Handle chat-only messages (follow-up questions)
    */
-  const handleChatMessage = async (currentInput: string, userMessage: Message) => {
+  const handleChatMessage = async (currentInput: string) => {
     // Find the most recent analysis results from messages
     const lastAnalysisMessage = messages
       .slice()

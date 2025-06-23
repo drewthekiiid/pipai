@@ -4,17 +4,6 @@
 export const dynamic = 'force-dynamic';
 
 export default function CDOUploadDockPage() {
-  const handleFilesSelected = (files: File[]) => {
-    console.log('Files selected:', files);
-  };
-
-  const handleFileRemove = (fileId: string) => {
-    console.log('File removed:', fileId);
-  };
-
-  const handleSend = () => {
-    console.log('Send clicked');
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-900 to-red-800 flex flex-col items-center justify-center p-4">
@@ -64,7 +53,7 @@ export default function CDOUploadDockPage() {
 
         <div className="text-center mt-8">
           <p className="text-red-200 text-sm">
-            Powered by CDO Group's advanced AI estimation technology
+            Powered by CDO Group&apos;s advanced AI estimation technology
           </p>
         </div>
       </div>
