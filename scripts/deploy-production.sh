@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # PIP AI Production Deployment Script
-# Deploys both Vercel (API) and Fly.io (Workers) for 24/7 operation
+# Frontend: Vercel (Next.js) | Backend: Fly.io (Workers + FREE Unstructured-IO)
 
 set -e
 
@@ -37,9 +37,10 @@ export NODE_ENV=production
 export ENVIRONMENT=production
 
 print_status "Building and deploying to production..."
+print_status "Architecture: Frontend (Vercel) + Backend (Fly.io)"
 
-# 1. Deploy Vercel (Next.js App + API Routes)
-print_status "Deploying Next.js app to Vercel..."
+# 1. Deploy Frontend to Vercel
+print_status "🌐 Deploying Next.js frontend to Vercel..."
 npx vercel --prod --confirm
 
 # 2. Restore environment variables to Vercel
@@ -50,13 +51,21 @@ else
     print_error "restore-vercel-env.sh not found. Environment variables need to be set manually."
 fi
 
-# 3. Deploy Fly.io Workers
-print_status "Deploying Temporal workers to Fly.io..."
+# 3. Deploy Backend Services to Fly.io
+print_status "🚁 Deploying Temporal workers to Fly.io..."
 if [ -f "fly.toml" ]; then
     fly deploy --config fly.toml
 else
     print_error "fly.toml not found. Cannot deploy workers."
     exit 1
+fi
+
+# 4. Deploy FREE Unstructured-IO Service to Fly.io
+print_status "🆓 Deploying FREE Unstructured-IO to Fly.io..."
+if [ -f "./deploy-unstructured-cloud.sh" ]; then
+    ./deploy-unstructured-cloud.sh
+else
+    print_error "deploy-unstructured-cloud.sh not found. Cannot deploy Unstructured-IO."
 fi
 
 # 4. Verify deployments
@@ -80,12 +89,11 @@ else
 fi
 
 print_success "🎉 Production deployment complete!"
-print_status "Your 24/7 backend is now running:"
-print_status "• Frontend/API: Vercel (serverless, auto-scaling)"
-print_status "• Workers: Fly.io (always-on, auto-restart)"
-print_status "• Database: Neon (serverless Postgres)"
-print_status "• File Storage: AWS S3"
-print_status "• Workflows: Temporal Cloud"
+print_status "Your hybrid cloud architecture is now running:"
+print_status "🌐 Frontend: Vercel (Next.js, serverless, auto-scaling)"
+print_status "🚁 Backend: Fly.io (Workers + FREE Unstructured-IO, always-on)"
+print_status "📊 Workflows: Temporal Cloud"
+print_status "📁 Storage: AWS S3"
 
 echo ""
 print_status "📊 To monitor your production systems:"

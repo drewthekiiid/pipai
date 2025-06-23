@@ -1,0 +1,163 @@
+name: ⚡ Quick Deploy to Vercel
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deploy to environment"
+        required: true
+        default: "preview"
+        type: choice
+        options:
+          - preview
+          - production
+
+  # Auto-trigger on feature branches
+  push:
+    branches:
+      - "feature/**"
+      - "fix/**"
+      - "ui/**"
+      - "test/**"
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "10.12.1"
+
+permissions:
+  statuses: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  quick-deploy:
+    name: ⚡ Quick Deploy
+    runs-on: ubuntu-latest
+
+    environment:
+      name: ${{ github.event.inputs.environment || 'preview' }}
+      url: ${{ steps.deploy.outputs.preview_url }}
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: 📦 Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: 📦 Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: 📦 Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: 🔍 Quick lint check
+        run: pnpm run lint
+        continue-on-error: true
+
+      - name: 📦 Build shared packages
+        run: |
+          cd packages/shared && pnpm run build
+          cd ../ui && pnpm run build
+
+      - name: 📦 Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: ⚡ Deploy to Vercel
+        id: deploy
+        run: |
+          # Determine if this is production or preview
+          IS_PROD=${{ github.event.inputs.environment == 'production' || github.ref == 'refs/heads/main' }}
+
+          echo "Deploying to $([ "$IS_PROD" = "true" ] && echo "production" || echo "preview")"
+
+          # Pull Vercel environment
+          vercel pull --yes --environment=$([ "$IS_PROD" = "true" ] && echo "production" || echo "preview") --token=${{ secrets.VERCEL_TOKEN }}
+
+          # Build the project
+          vercel build $([ "$IS_PROD" = "true" ] && echo "--prod" || echo "") --token=${{ secrets.VERCEL_TOKEN }}
+
+          # Deploy to Vercel
+          DEPLOYMENT_URL=$(vercel deploy --prebuilt $([ "$IS_PROD" = "true" ] && echo "--prod" || echo "") --token=${{ secrets.VERCEL_TOKEN }})
+
+          echo "preview_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          echo "🚀 Deployment URL: $DEPLOYMENT_URL"
+
+          # Set friendly alias for feature branches
+          if [ "$IS_PROD" != "true" ]; then
+            BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
+            ALIAS="pipai-$BRANCH_NAME"
+            echo "Setting alias: $ALIAS"
+            vercel alias "$DEPLOYMENT_URL" "$ALIAS" --token=${{ secrets.VERCEL_TOKEN }} || true
+            echo "📎 Branch alias: https://$ALIAS.vercel.app"
+          fi
+
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          # Application environment variables
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_S3_BUCKET_NAME: ${{ secrets.AWS_S3_BUCKET_NAME }}
+          TEMPORAL_NAMESPACE: ${{ secrets.TEMPORAL_NAMESPACE }}
+          TEMPORAL_API_KEY: ${{ secrets.TEMPORAL_API_KEY }}
+          TEMPORAL_TASK_QUEUE: ${{ secrets.TEMPORAL_TASK_QUEUE }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          REDIS_TOKEN: ${{ secrets.REDIS_TOKEN }}
+          NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+
+      - name: 📝 Comment deployment URL
+        if: github.event_name == 'push'
+        run: |
+          echo "## ⚡ Quick Deploy Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🚀 **Deployment URL**: ${{ steps.deploy.outputs.preview_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "🌿 **Branch**: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "💫 **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🧪 Test your changes:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Visit the deployment URL above" >> $GITHUB_STEP_SUMMARY
+          echo "2. Test the 'Let's Build!' interface" >> $GITHUB_STEP_SUMMARY
+          echo "3. Upload a construction document" >> $GITHUB_STEP_SUMMARY
+          echo "4. Verify agent workflow and UI improvements" >> $GITHUB_STEP_SUMMARY
+
+      - name: 📱 Create GitHub commit status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const state = '${{ job.status }}' === 'success' ? 'success' : 'failure';
+            const description = '${{ job.status }}' === 'success' 
+              ? '⚡ Quick deploy completed successfully!'
+              : '❌ Quick deploy failed';
+
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: state,
+              target_url: '${{ steps.deploy.outputs.preview_url }}',
+              description: description,
+              context: 'vercel/quick-deploy'
+            });

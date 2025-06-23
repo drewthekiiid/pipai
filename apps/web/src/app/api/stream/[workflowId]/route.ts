@@ -178,7 +178,9 @@ export async function GET(
         let lastStatus = '';
         let lastProgress = -1;
         let pollCount = 0;
-        const maxPolls = 300; // 5 minutes max
+        let queryFailureCount = 0;
+        const maxPolls = 600; // 8 minutes max (workflows can take 5-7 minutes)
+        const maxQueryFailures = 60; // Allow 60 query failures before giving up
         
         pollInterval = setInterval(async () => {
           // Early exit if stream is closed
@@ -196,6 +198,8 @@ export async function GET(
             
             // Send status update if changed
             if (currentStatus !== lastStatus) {
+              console.log(`📊 Workflow ${workflowId} status changed: ${lastStatus} → ${currentStatus} (poll ${pollCount})`);
+              
               if (!sendEvent('status', {
                 workflowId,
                 status: currentStatus,
@@ -211,11 +215,16 @@ export async function GET(
             try {
               const progressStatus = await handle.query('getAnalysisStatus') as AnalysisStatus;
               
+              // Reset query failure count on successful query
+              queryFailureCount = 0;
+              
               if (progressStatus && progressStatus.progress !== lastProgress) {
                 // Send detailed construction progress
-                if (!sendEvent('progress', {
+                if (!sendEvent('message', {
+                  type: 'progress',
                   workflowId,
                   step: progressStatus.step,
+                  message: progressStatus.step,
                   progress: progressStatus.progress,
                   agent: extractAgentFromStep(progressStatus.step),
                   timestamp: new Date().toISOString(),
@@ -225,39 +234,61 @@ export async function GET(
                 }
                 
                 lastProgress = progressStatus.progress;
-                
-                // Send completion event when progress reaches 100%
-                if (progressStatus.progress >= 100) {
-                  sendEvent('analysis_complete', {
-                    workflowId,
-                    step: progressStatus.step,
-                    timestamp: new Date().toISOString()
-                  });
-                }
               }
             } catch {
+              queryFailureCount++;
+              
               // Query might fail during early workflow stages - that's normal
-              if (pollCount % 30 === 0) { // Log only every 30 seconds to avoid spam
-                console.log('Query not yet available for workflow:', workflowId);
+              if (pollCount % 60 === 0) { // Log only every minute to avoid spam
+                console.log(`Query not yet available for workflow: ${workflowId} (failures: ${queryFailureCount})`);
+              }
+              
+              // If too many query failures and workflow isn't complete, there might be an issue
+              if (queryFailureCount > maxQueryFailures && currentStatus !== 'COMPLETED') {
+                console.warn(`Too many query failures for workflow ${workflowId}, but continuing to monitor status`);
               }
             }
 
             // If workflow completed, get final result
             if (currentStatus === 'COMPLETED') {
+              console.log(`✅ Workflow ${workflowId} completed, sending completion event`);
+              
               try {
                 const result = await handle.result();
-                sendEvent('completed', {
+                console.log('📊 Workflow result preview:', {
+                  summary: result.summary?.substring(0, 100) + '...',
+                  insightsCount: result.insights?.length || 0,
+                  extractedTextLength: result.extractedText?.length || 0,
+                  embeddingsLength: result.embeddings?.length || 0,
+                  status: result.status
+                });
+                
+                // Filter out embeddings and large data from UI display
+                const uiResult = {
+                  summary: result.summary || 'Construction document analysis completed successfully.',
+                  insights: result.insights || ['Document processed', 'Analysis complete'],
+                  keyTopics: result.keyTopics || [],
+                  status: result.status || 'success',
+                  analysisId: result.analysisId || 'unknown',
+                  // Only include extracted text if it's reasonable length
+                  extractedText: (result.extractedText && result.extractedText.length < 10000) 
+                    ? result.extractedText 
+                    : result.extractedText?.substring(0, 5000) + '\n\n... (content truncated for display)'
+                };
+                
+                sendEvent('message', {
+                  type: 'complete',
                   workflowId,
-                  result,
+                  message: 'Analysis complete! Here are the detailed results:',
+                  analysisResult: uiResult,
                   timestamp: new Date().toISOString()
                 });
-              } catch {
-                sendEvent('completed', {
+              } catch (error) {
+                console.error('Error getting workflow result:', error);
+                sendEvent('message', {
+                  type: 'error',
                   workflowId,
-                  result: { 
-                    message: 'Construction analysis completed successfully',
-                    status: 'success'
-                  },
+                  message: `Failed to retrieve analysis results: ${error instanceof Error ? error.message : 'Unknown error'}`,
                   timestamp: new Date().toISOString()
                 });
               }
@@ -267,10 +298,10 @@ export async function GET(
             }
             
             if (currentStatus === 'FAILED' || currentStatus === 'TERMINATED') {
-              sendEvent('failed', {
+              sendEvent('message', {
+                type: 'error',
                 workflowId,
-                status: currentStatus,
-                error: 'Construction analysis workflow failed',
+                message: `Analysis failed: ${currentStatus.toLowerCase()}`,
                 timestamp: new Date().toISOString()
               });
               
@@ -278,12 +309,15 @@ export async function GET(
               return;
             }
 
-            // Send periodic heartbeat with connection status
-            if (pollCount % 15 === 0) {
-              if (!sendEvent('heartbeat', {
+            // Send periodic heartbeat with connection status (every 30 seconds)
+            if (pollCount % 40 === 0 && pollCount > 0) {
+              const elapsedMinutes = Math.floor((pollCount * 800) / 60000);
+              if (!sendEvent('message', {
+                type: 'progress',
                 workflowId,
-                pollCount,
-                message: 'Construction analysis in progress...',
+                step: 'heartbeat',
+                message: `Analysis in progress... (${elapsedMinutes}m elapsed, Status: ${currentStatus})`,
+                progress: Math.min(lastProgress + 5, 95), // Gradual progress increase
                 timestamp: new Date().toISOString()
               })) {
                 return; // Client disconnected during heartbeat
@@ -292,9 +326,10 @@ export async function GET(
 
             // Stop polling after max attempts
             if (pollCount >= maxPolls) {
-              sendEvent('timeout', {
+              sendEvent('message', {
+                type: 'error',
                 workflowId,
-                message: 'Construction analysis timeout - please check workflow status',
+                message: 'Analysis timeout - workflow is taking longer than expected. Please check Temporal dashboard for status.',
                 timestamp: new Date().toISOString()
               });
               
@@ -303,24 +338,29 @@ export async function GET(
             
           } catch (error) {
             console.error('Error polling workflow:', error);
-            sendEvent('error', {
+            sendEvent('message', {
+              type: 'error',
               workflowId,
-              error: error instanceof Error ? error.message : 'Unknown error',
+              message: `Workflow polling error: ${error instanceof Error ? error.message : 'Unknown error'}`,
               timestamp: new Date().toISOString()
             });
             
             // For workflow not found errors, close the stream
-            if (error instanceof Error && error.message.includes('workflow not found')) {
+            if (error instanceof Error && 
+                (error.message.includes('workflow not found') || 
+                 error.message.includes('NOT_FOUND'))) {
+              console.log(`Workflow ${workflowId} not found, closing stream`);
               safeCleanup();
             }
           }
-        }, 800); // Poll more frequently for better UX
+        }, 800); // Poll every 800ms for responsive UX
 
       } catch (error) {
         console.error('Error setting up workflow stream:', error);
-        sendEvent('error', {
+        sendEvent('message', {
+          type: 'error',
           workflowId,
-          error: error instanceof Error ? error.message : 'Failed to connect to workflow',
+          message: `Failed to connect to workflow: ${error instanceof Error ? error.message : 'Unknown error'}`,
           timestamp: new Date().toISOString()
         });
         safeCleanup();

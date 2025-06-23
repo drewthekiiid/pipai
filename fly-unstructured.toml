@@ -1,0 +1,50 @@
+app = "pip-ai-unstructured-free"
+primary_region = "iad"
+console_command = "/bin/bash"
+
+[experimental]
+  auto_rollback = true
+
+[[mounts]]
+  source = "unstructured_data"
+  destination = "/tmp/unstructured"
+
+[env]
+  UNSTRUCTURED_HOST = "0.0.0.0"
+  UNSTRUCTURED_PORT = "8000"
+  UNSTRUCTURED_WORKERS = "4"
+  PYTHONUNBUFFERED = "1"
+  # FREE OPEN SOURCE VERSION - No API keys needed!
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    method = "GET"
+    path = "/general/docs"
+    timeout = "5s"
+
+[build]
+  image = "downloads.unstructured.io/unstructured-io/unstructured:latest"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 2
+  memory_mb = 4096
+
+[deploy]
+  strategy = "rolling"
+  max_unavailable = 0
+
+[metrics]
+  port = 8000
+  path = "/metrics"
+
+[restart]
+  policy = "always" 
