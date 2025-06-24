@@ -107,4 +107,6 @@ async def process_document(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info") 
+    port = int(os.getenv("UNSTRUCTURED_PORT", 8000))  # Use env var or default to 8000
+    logger.info(f"🚀 Starting Unstructured Server on port {port}...")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info") 

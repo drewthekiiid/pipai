@@ -10,6 +10,8 @@ import * as fs from 'fs/promises';
 interface UnstructuredConfig {
   apiUrl: string;
   apiKey?: string; // Optional for open source version
+  timeout: number;
+  maxConcurrency: number;
 }
 
 interface UnstructuredElement {
@@ -65,6 +67,16 @@ interface ProcessedDocument {
       lists: string[];
     };
   };
+}
+
+interface ProcessFileOptions {
+  strategy?: string;
+  hi_res_model_name?: string;
+  chunking_strategy?: string;
+  max_characters?: number;
+  combine_under_n_chars?: number;
+  new_after_n_chars?: number;
+  ocr_languages?: string[];
 }
 
 export class UnstructuredClient {
@@ -291,17 +303,47 @@ export class UnstructuredClient {
   }
 
   /**
-   * Health check for Unstructured service
+   * Health check for Unstructured service with dynamic port detection
    */
   async healthCheck(): Promise<boolean> {
-    try {
-      const response = await axios.get(`${this.config.apiUrl}/healthcheck`, {
-        timeout: 5000
-      });
-      return response.status === 200 && response.data.status === 'healthy';
-    } catch {
-      return false;
+    // If we have a cloud URL or explicit URL, just test that
+    if (this.config.apiUrl.includes('fly.dev') || process.env.UNSTRUCTURED_API_URL) {
+      try {
+        const response = await axios.get(`${this.config.apiUrl}/healthcheck`, {
+          timeout: 5000
+        });
+        return response.status === 200 && response.data.status === 'healthy';
+      } catch {
+        return false;
+      }
     }
+
+    // For localhost, try dynamic port detection
+    const portsToTry = [8001, 8000]; // Try optimized server first, then standard
+    
+    for (const port of portsToTry) {
+      try {
+        const testUrl = `http://localhost:${port}`;
+        const response = await axios.get(`${testUrl}/healthcheck`, { 
+          timeout: 3000
+        });
+        
+        if (response.status === 200) {
+          // Update our config to use the working port
+          if (this.config.apiUrl !== testUrl) {
+            console.log(`[Unstructured] Found running service on port ${port}, updating configuration`);
+            this.config.apiUrl = testUrl;
+          }
+          return true;
+        }
+      } catch (error) {
+        // Port not available, try next one
+        console.log(`[Unstructured] Port ${port} not available, trying next...`);
+      }
+    }
+    
+    console.error(`[Unstructured] No unstructured service found on any port. Tried: ${portsToTry.join(', ')}`);
+    return false;
   }
 
   /**
@@ -344,11 +386,92 @@ export class UnstructuredClient {
       'png', 'jpg', 'jpeg', 'tiff', 'bmp', 'heic'
     ];
   }
+
+  /**
+   * Process file through unstructured service with enhanced error handling
+   */
+  async processFile(
+    fileName: string, 
+    fileBuffer: Buffer, 
+    options: ProcessFileOptions = {}
+  ): Promise<UnstructuredElement[]> {
+    const startTime = Date.now();
+    
+    try {
+      await this.healthCheck();
+      
+      const formData = new FormData();
+      const blob = new Blob([fileBuffer]);
+      formData.append('files', blob, fileName);
+      
+      // Enhanced processing options for maximum quality
+      formData.append('strategy', options.strategy || 'fast');
+      formData.append('hi_res_model_name', options.hi_res_model_name || 'yolox');
+      formData.append('pdf_infer_table_structure', 'true');
+      formData.append('chunking_strategy', options.chunking_strategy || 'by_title');
+      formData.append('max_characters', String(options.max_characters || 500));
+      formData.append('combine_under_n_chars', String(options.combine_under_n_chars || 100));
+      formData.append('new_after_n_chars', String(options.new_after_n_chars || 300));
+      
+      // Add OCR languages if specified
+      if (options.ocr_languages?.length) {
+        formData.append('ocr_languages', options.ocr_languages.join(','));
+      }
+
+      // Prepare headers
+      const headers: Record<string, string> = {};
+      
+      // Add API key for hosted service
+      if (this.config.apiKey) {
+        headers['unstructured-api-key'] = this.config.apiKey;
+      }
+
+      console.log(`[Unstructured] Processing ${fileName} (${Math.round(fileBuffer.length / 1024)}KB)`);
+      console.log(`[Unstructured] Strategy: ${options.strategy || 'fast'}, Concurrency: ${this.config.maxConcurrency}`);
+      
+      const response = await axios.post(
+        `${this.config.apiUrl}/general/v0/general`,
+        formData,
+        {
+          headers,
+          timeout: this.config.timeout,
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+        }
+      );
+
+      const elements = response.data as UnstructuredElement[];
+      const processingTime = (Date.now() - startTime) / 1000;
+      
+      console.log(`[Unstructured] ✅ Processing completed: ${elements.length} elements in ${processingTime.toFixed(2)}s`);
+      
+      return elements;
+
+    } catch (error) {
+      const processingTime = (Date.now() - startTime) / 1000;
+      console.error(`[Unstructured] ❌ Processing failed after ${processingTime.toFixed(2)}s:`, error);
+      
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error('Unstructured API authentication failed. Please check your API key.');
+        }
+        if (error.response?.status === 429) {
+          throw new Error('Unstructured API rate limit exceeded. Please try again later.');
+        }
+        if (error.code === 'ECONNABORTED') {
+          throw new Error(`Unstructured API timeout after ${this.config.timeout}ms`);
+        }
+        throw new Error(`Unstructured API error: ${error.response?.status} ${error.response?.statusText}`);
+      }
+      
+      throw new Error(`Unstructured processing failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }
 
 // Default configuration with smart cloud/local detection
 export const createUnstructuredClient = (customConfig?: Partial<UnstructuredConfig>): UnstructuredClient => {
-  // Smart URL detection: Use cloud URL in production, localhost in development
+  // Smart URL detection: Use hosted API in production, localhost in development
   const getApiUrl = (): string => {
     // Priority order:
     // 1. Explicit environment variable
@@ -356,22 +479,27 @@ export const createUnstructuredClient = (customConfig?: Partial<UnstructuredConf
       return process.env.UNSTRUCTURED_API_URL;
     }
     
-    // 2. If we're in a cloud environment (Vercel, Fly.io), use cloud service
+    // 2. If we're in a cloud environment (Vercel, Fly.io), use hosted API service
     if (process.env.VERCEL || process.env.FLY_APP_NAME || process.env.NODE_ENV === 'production') {
-      return 'https://pip-ai-unstructured-free.fly.dev';
+      return 'https://api.unstructured.io'; // Hosted API service
     }
     
-    // 3. Default to localhost for development
-    return 'http://localhost:8000';
+    // 3. For localhost, try dynamic port detection
+    const portsToTry = [8001, 8000]; // Try optimized server first, then standard
+    
+    // Return first port for now, healthCheck will update if needed
+    return `http://localhost:${portsToTry[0]}`;
   };
 
-  const defaultConfig: UnstructuredConfig = {
+  const config: UnstructuredConfig = {
     apiUrl: getApiUrl(),
-    // No API key needed for open source version
-    apiKey: process.env.UNSTRUCTURED_API_KEY,
+    timeout: 300000, // 5 minutes for large files
+    maxConcurrency: 15,
+    apiKey: process.env.UNSTRUCTURED_API_KEY, // Required for hosted service
+    ...customConfig
   };
 
-  console.log(`[Unstructured] Using API URL: ${defaultConfig.apiUrl}`);
+  console.log(`[Unstructured] Using API: ${config.apiUrl}${config.apiKey ? ' (with API key)' : ' (open source)'}`);
 
-  return new UnstructuredClient({ ...defaultConfig, ...customConfig });
+  return new UnstructuredClient(config);
 }; 

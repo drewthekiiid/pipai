@@ -2,11 +2,12 @@
  * PIP AI Temporal Activities
  * Core processing activities for document analysis and AI workflows
  */
+import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Context } from '@temporalio/activity';
-import * as crypto from 'crypto';
 import { config } from 'dotenv';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { createPDFToImagesClient } from './pdf-to-images-client.js';
 import { createUnstructuredClient } from './unstructured-client.js';
 // Load environment variables
 config({ path: '../../.env' });
@@ -27,9 +28,11 @@ export async function downloadFileActivity(input) {
     const { activityId } = getActivityInfo();
     console.log(`[${activityId}] Downloading file: ${input.fileUrl}`);
     try {
-        // Create temp directory for this analysis
-        const tempDir = path.join('/tmp', input.analysisId);
+        // Create unique temp directory with activity ID to prevent conflicts
+        const uniqueTempId = `${input.analysisId}_${activityId}_${Date.now()}`;
+        const tempDir = path.join('/tmp', uniqueTempId);
         await fs.mkdir(tempDir, { recursive: true });
+        console.log(`[${activityId}] Created unique temp directory: ${tempDir}`);
         let fileContent;
         let fileName;
         let fileBuffer = null;
@@ -40,145 +43,297 @@ export async function downloadFileActivity(input) {
                 console.log(`[${activityId}] Detected S3 URL, using AWS SDK for download`);
                 try {
                     // Parse S3 URL to extract bucket and key
-                    const s3Url = new URL(input.fileUrl);
-                    let bucketName;
-                    let objectKey;
-                    if (s3Url.hostname.includes('.s3.')) {
-                        // Format: https://bucket-name.s3.region.amazonaws.com/path/to/file
-                        bucketName = s3Url.hostname.split('.')[0];
-                        objectKey = s3Url.pathname.slice(1); // Remove leading slash
+                    const s3UrlMatch = input.fileUrl.match(/https:\/\/([^.]+)\.s3(?:\.([^.]+))?\.amazonaws\.com\/(.+)/);
+                    if (!s3UrlMatch) {
+                        throw new Error(`Invalid S3 URL format: ${input.fileUrl}`);
                     }
-                    else {
-                        // Format: https://s3.region.amazonaws.com/bucket-name/path/to/file
-                        const pathParts = s3Url.pathname.slice(1).split('/');
-                        bucketName = pathParts[0];
-                        objectKey = pathParts.slice(1).join('/');
-                    }
-                    console.log(`[${activityId}] S3 Details - Bucket: ${bucketName}, Key: ${objectKey}`);
-                    // Import AWS SDK
-                    const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
-                    // Create S3 client for AWS (no endpoint needed - auto-resolved)
+                    const [, bucket, region, key] = s3UrlMatch;
+                    console.log(`[${activityId}] S3 Details - Bucket: ${bucket}, Key: ${key}`);
+                    // Configure S3 client
                     const s3Client = new S3Client({
-                        region: process.env.AWS_REGION || 'us-east-1',
+                        region: region || process.env.AWS_REGION || 'us-east-1',
                         credentials: {
                             accessKeyId: process.env.AWS_ACCESS_KEY_ID,
                             secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
                         },
-                        // AWS S3 uses virtual-hosted-style by default (no forcePathStyle needed)
                     });
-                    // Download object from S3
-                    const command = new GetObjectCommand({
-                        Bucket: bucketName,
-                        Key: objectKey,
+                    console.log(`[${activityId}] Sending S3 GetObject request...`);
+                    const getObjectCommand = new GetObjectCommand({
+                        Bucket: bucket,
+                        Key: key,
                     });
-                    const response = await s3Client.send(command);
-                    if (!response.Body) {
-                        throw new Error('No file content received from S3');
-                    }
-                    // Convert AWS SDK stream to buffer (keep as binary for PDFs)
-                    // Handle the stream properly for AWS SDK
-                    if (response.Body instanceof Buffer) {
-                        fileBuffer = response.Body;
+                    const response = await s3Client.send(getObjectCommand);
+                    console.log(`[${activityId}] S3 response received, processing stream...`);
+                    // Handle different stream types from AWS SDK v3
+                    if (response.Body) {
+                        const chunks = [];
+                        if (response.Body instanceof Uint8Array) {
+                            // Direct binary data
+                            fileBuffer = Buffer.from(response.Body);
+                        }
+                        else if (typeof response.Body === 'string') {
+                            // String data
+                            fileBuffer = Buffer.from(response.Body, 'utf-8');
+                        }
+                        else if (response.Body && typeof response.Body[Symbol.asyncIterator] === 'function') {
+                            // Async iterable stream (AWS SDK v3)
+                            for await (const chunk of response.Body) {
+                                chunks.push(Buffer.from(chunk));
+                            }
+                            fileBuffer = Buffer.concat(chunks);
+                        }
+                        else if (response.Body && typeof response.Body.on === 'function') {
+                            // Node.js Readable stream
+                            const stream = response.Body;
+                            for await (const chunk of stream) {
+                                chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                            }
+                            fileBuffer = Buffer.concat(chunks);
+                        }
+                        else {
+                            throw new Error(`Unsupported S3 response body type: ${typeof response.Body}`);
+                        }
+                        // Extract filename from Content-Disposition or URL
+                        fileName = response.ContentDisposition?.match(/filename="([^"]+)"/)?.[1] ||
+                            path.basename(key) ||
+                            `downloaded_file_${Date.now()}`;
+                        console.log(`[${activityId}] S3 download successful: ${fileBuffer.length} bytes, filename: ${fileName}`);
                     }
                     else {
-                        // Handle readable stream
-                        const chunks = [];
-                        const stream = response.Body;
-                        for await (const chunk of stream) {
-                            chunks.push(Buffer.from(chunk));
-                        }
-                        fileBuffer = Buffer.concat(chunks);
+                        throw new Error('Empty response body from S3');
                     }
-                    fileName = path.basename(objectKey) || 'document.txt';
-                    fileContent = fileBuffer.toString(); // Keep for compatibility but write buffer to disk
-                    console.log(`[${activityId}] S3 download successful: ${fileBuffer.length} bytes`);
                 }
-                catch (s3Error) {
-                    console.error(`[${activityId}] S3 download failed:`, s3Error);
-                    throw new Error(`Failed to download from S3: ${s3Error instanceof Error ? s3Error.message : 'Unknown S3 error'}`);
+                catch (error) {
+                    console.error(`[${activityId}] S3 download failed:`, error);
+                    throw new Error(`Failed to download from S3: ${error instanceof Error ? error.message : String(error)}`);
                 }
             }
             else {
-                // Download from regular HTTP URL
+                // Handle regular HTTP download
+                console.log(`[${activityId}] Downloading from HTTP URL`);
                 const response = await fetch(input.fileUrl);
                 if (!response.ok) {
-                    throw new Error(`Failed to download file: ${response.statusText}`);
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                fileName = path.basename(input.fileUrl) || 'document.txt';
                 const arrayBuffer = await response.arrayBuffer();
-                fileContent = Buffer.from(arrayBuffer).toString();
+                fileBuffer = Buffer.from(arrayBuffer);
+                fileName = path.basename(new URL(input.fileUrl).pathname) || `downloaded_file_${Date.now()}`;
+                console.log(`[${activityId}] HTTP download successful: ${fileBuffer.length} bytes`);
             }
         }
         else {
-            // Local file for testing
-            fileName = path.basename(input.fileUrl) || 'document.txt';
-            fileContent = `Mock file content for ${fileName}\nUser: ${input.userId}\nAnalysis: ${input.analysisId}`;
+            // Handle direct file path (local file)
+            console.log(`[${activityId}] Reading local file: ${input.fileUrl}`);
+            fileBuffer = await fs.readFile(input.fileUrl);
+            fileName = path.basename(input.fileUrl);
+            console.log(`[${activityId}] Local file read successful: ${fileBuffer.length} bytes`);
         }
-        const localPath = path.join(tempDir, fileName);
-        // For S3 files, write the binary buffer directly to preserve PDF structure
+        // Write file to unique temp directory
+        const fullFilePath = path.join(tempDir, fileName);
+        console.log(`[${activityId}] Writing file to: ${fullFilePath}`);
+        await fs.writeFile(fullFilePath, fileBuffer);
+        console.log(`[${activityId}] Binary file written: ${fileBuffer.length} bytes`);
+        // Verify file was written correctly
+        const stats = await fs.stat(fullFilePath);
+        console.log(`[${activityId}] File verification successful: ${stats.size} bytes on disk`);
+        if (stats.size !== fileBuffer.length) {
+            throw new Error(`File size mismatch: expected ${fileBuffer.length}, got ${stats.size}`);
+        }
+        // Determine file extension and type
+        const fileExtension = path.extname(fileName).toLowerCase();
+        console.log(`[${activityId}] File extension detected: '${fileExtension}' from filename: ${fileName}`);
+        const fileType = getFileType(fileExtension);
+        console.log(`[${activityId}] File type determined: ${fileType}`);
+        console.log(`[${activityId}] File downloaded successfully:`);
+        console.log(`  - Path: ${fullFilePath}`);
+        console.log(`  - Type: ${fileType}`);
+        console.log(`  - Size: ${stats.size} bytes`);
+        console.log(`  - Extension: ${fileExtension}`);
+        // 🚀 PRESIGNED URL APPROACH: Generate presigned URL for cross-activity access
+        let presignedUrl = input.fileUrl;
         if (input.fileUrl.includes('.s3.') || input.fileUrl.includes('s3.amazonaws.com')) {
-            if (fileBuffer) {
-                await fs.writeFile(localPath, fileBuffer);
+            // Generate presigned URL for S3 files to avoid 2MB activity result limits
+            console.log(`[${activityId}] Generating presigned URL for cross-activity access`);
+            try {
+                const s3UrlMatch = input.fileUrl.match(/https:\/\/([^.]+)\.s3(?:\.([^.]+))?\.amazonaws\.com\/(.+)/);
+                if (s3UrlMatch) {
+                    const [, bucket, region, key] = s3UrlMatch;
+                    const s3Client = new S3Client({
+                        region: region || process.env.AWS_REGION || 'us-east-1',
+                        credentials: {
+                            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+                        },
+                    });
+                    const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+                    const getObjectCommand = new GetObjectCommand({
+                        Bucket: bucket,
+                        Key: key,
+                    });
+                    // Generate presigned URL valid for 2 hours (enough for workflow processing)
+                    presignedUrl = await getSignedUrl(s3Client, getObjectCommand, { expiresIn: 7200 });
+                    console.log(`[${activityId}] ✅ Generated presigned URL (expires in 2 hours)`);
+                }
             }
-            else {
-                await fs.writeFile(localPath, fileContent);
+            catch (error) {
+                console.warn(`[${activityId}] Failed to generate presigned URL, using original: ${error}`);
+                presignedUrl = input.fileUrl;
             }
         }
-        else {
-            await fs.writeFile(localPath, fileContent);
-        }
-        // Get file stats
-        const stats = await fs.stat(localPath);
-        const hash = crypto.createHash('sha256').update(fileContent).digest('hex');
-        // Determine file type from extension
-        const fileExt = path.extname(fileName).toLowerCase();
-        const fileType = getFileType(fileExt);
-        console.log(`[${activityId}] File downloaded successfully: ${localPath}`);
+        console.log(`[${activityId}] File ready for cross-activity access via presigned URL`);
         return {
-            localPath,
-            fileType,
+            filePath: fullFilePath,
+            fileType: fileType,
+            fileName: fileName,
             fileSize: stats.size,
-            hash,
+            tempDir: tempDir, // Return temp dir for cleanup
+            fileContent: '', // Empty - use presigned URL instead
+            originalUrl: input.fileUrl, // Original URL for reference
+            presignedUrl: presignedUrl, // Presigned URL for cross-activity access
         };
     }
     catch (error) {
         console.error(`[${activityId}] Download failed:`, error);
-        throw new Error(`Failed to download file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        throw new Error(`Failed to download file: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 /**
- * Extract text content from various file formats using Unstructured-IO
+ * Extract text content from downloaded file - works with distributed workers
+ * by accepting either file path or base64 content
  */
-export async function extractTextActivity(filePath) {
-    console.log(`Starting text extraction for: ${filePath}`);
+export async function extractTextFromDownloadActivity(downloadResult) {
+    const { activityId } = getActivityInfo();
+    console.log(`[${activityId}] Starting text extraction from download result: ${downloadResult.fileName}`);
     try {
-        // Initialize Unstructured client
+        let workingFilePath;
+        let tempFileCreated = false;
+        // Try to use the file path first
+        const fs = await import('fs');
+        try {
+            if (downloadResult.filePath) {
+                const stats = await fs.promises.stat(downloadResult.filePath);
+                if (stats.isFile() && stats.size > 0) {
+                    console.log(`[${activityId}] Using existing file path: ${downloadResult.filePath}`);
+                    workingFilePath = downloadResult.filePath;
+                }
+                else {
+                    throw new Error('File path exists but file is invalid');
+                }
+            }
+            else {
+                throw new Error('No file path provided');
+            }
+        }
+        catch (filePathError) {
+            // File path doesn't work (different worker), try base64 content or re-download from S3
+            console.log(`[${activityId}] File path not accessible (${filePathError instanceof Error ? filePathError.message : 'unknown error'})`);
+            if (downloadResult.fileContent && downloadResult.fileContent.length > 0) {
+                // Use base64 content for small files
+                console.log(`[${activityId}] Using base64 content`);
+                const tempDir = path.join('/tmp', `extract_${activityId}_${Date.now()}`);
+                await fs.promises.mkdir(tempDir, { recursive: true });
+                workingFilePath = path.join(tempDir, downloadResult.fileName);
+                const fileBuffer = Buffer.from(downloadResult.fileContent, 'base64');
+                await fs.promises.writeFile(workingFilePath, fileBuffer);
+                console.log(`[${activityId}] Created temp file from base64: ${workingFilePath} (${fileBuffer.length} bytes)`);
+                tempFileCreated = true;
+                // Verify temp file
+                const stats = await fs.promises.stat(workingFilePath);
+                if (stats.size !== fileBuffer.length) {
+                    throw new Error(`Temp file size mismatch: expected ${fileBuffer.length}, got ${stats.size}`);
+                }
+            }
+            else if (downloadResult.presignedUrl && downloadResult.presignedUrl !== downloadResult.originalUrl) {
+                // Download large file using presigned URL
+                console.log(`[${activityId}] Downloading large file using presigned URL`);
+                const response = await fetch(downloadResult.presignedUrl);
+                if (!response.ok) {
+                    throw new Error(`Failed to download via presigned URL: ${response.status} ${response.statusText}`);
+                }
+                const arrayBuffer = await response.arrayBuffer();
+                const fileBuffer = Buffer.from(arrayBuffer);
+                const tempDir = path.join('/tmp', `extract_${activityId}_${Date.now()}`);
+                await fs.promises.mkdir(tempDir, { recursive: true });
+                workingFilePath = path.join(tempDir, downloadResult.fileName);
+                await fs.promises.writeFile(workingFilePath, fileBuffer);
+                console.log(`[${activityId}] Downloaded file via presigned URL: ${workingFilePath} (${fileBuffer.length} bytes)`);
+                tempFileCreated = true;
+                // Verify file
+                const stats = await fs.promises.stat(workingFilePath);
+                if (stats.size !== fileBuffer.length) {
+                    throw new Error(`Downloaded file size mismatch: expected ${fileBuffer.length}, got ${stats.size}`);
+                }
+            }
+            else {
+                throw new Error('Neither file path, file content, nor presigned URL is available for processing');
+            }
+        }
+        console.log(`[${activityId}] Processing file: ${workingFilePath}`);
+        console.log(`[${activityId}] File details:`);
+        console.log(`  - Name: ${downloadResult.fileName}`);
+        console.log(`  - Type: ${downloadResult.fileType}`);
+        console.log(`  - Size: ${downloadResult.fileSize} bytes`);
+        console.log(`  - Using temp: ${tempFileCreated}`);
+        // 🚀 MODERN APPROACH: Handle different file types without unstructured dependency
+        const fileExt = workingFilePath.toLowerCase();
+        // For text files, read directly without unstructured
+        if (fileExt.endsWith('.txt') || fileExt.endsWith('.md') || fileExt.endsWith('.csv')) {
+            console.log(`[${activityId}] 📄 Processing text file directly (no unstructured needed)`);
+            const textContent = await fs.promises.readFile(workingFilePath, 'utf-8');
+            // Cleanup temp file if created
+            if (tempFileCreated) {
+                try {
+                    await fs.promises.unlink(workingFilePath);
+                    await fs.promises.rmdir(path.dirname(workingFilePath));
+                    console.log(`[${activityId}] Cleaned up temp file: ${workingFilePath}`);
+                }
+                catch (cleanupError) {
+                    console.warn(`[${activityId}] Failed to cleanup temp file: ${cleanupError}`);
+                }
+            }
+            console.log(`[${activityId}] ✅ Text extraction completed: ${textContent.length} characters`);
+            return textContent;
+        }
+        // For PDF files, they should go through the PDF → Images → Vision pipeline
+        if (fileExt.endsWith('.pdf')) {
+            throw new Error('PDF files should be processed through the PDF → Images → Vision pipeline, not text extraction. This is a workflow routing error.');
+        }
+        // For other file types that still need unstructured (docx, doc, etc.)
+        if (!fileExt.endsWith('.docx') && !fileExt.endsWith('.doc') && !fileExt.endsWith('.rtf')) {
+            console.warn(`Processing potentially unsupported file type: ${fileExt}`);
+        }
+        // Initialize Unstructured client only for complex document types
         const client = createUnstructuredClient();
         // Check service health first
+        console.log(`[${activityId}] Checking unstructured service health for complex document...`);
         const isHealthy = await client.healthCheck();
         if (!isHealthy) {
             throw new Error('Unstructured.io service is not available. Please ensure the service is running at the configured URL.');
         }
+        console.log(`[${activityId}] ✅ Unstructured service is healthy`);
         // Check file size to determine processing strategy
-        const fs = require('fs');
-        const stats = await fs.promises.stat(filePath);
+        const stats = await fs.promises.stat(workingFilePath);
         const fileSizeMB = stats.size / (1024 * 1024);
-        const isLargePDF = filePath.toLowerCase().endsWith('.pdf') && fileSizeMB > 20; // 20MB threshold
-        console.log(`File size: ${fileSizeMB.toFixed(2)}MB`);
-        console.log(`Using ${isLargePDF ? 'large PDF optimization' : 'standard parallel processing'}`);
+        const isLargePDF = workingFilePath.toLowerCase().endsWith('.pdf') && fileSizeMB > 20; // 20MB threshold
+        console.log(`[${activityId}] File analysis:`);
+        console.log(`  - Size: ${fileSizeMB.toFixed(2)}MB`);
+        console.log(`  - Strategy: ${isLargePDF ? 'large PDF optimization' : 'standard parallel processing'}`);
+        console.log(`  - Processing with unstructured service...`);
         // Process document with appropriate method
         let result;
         if (isLargePDF) {
+            console.log(`[${activityId}] 🚀 Using maximum parallel optimization for large PDF...`);
             // Use maximum parallel optimization for large PDFs
-            result = await client.processLargePDF(filePath, {
+            result = await client.processLargePDF(workingFilePath, {
                 maxConcurrency: 15, // Maximum allowed
                 allowPartialFailure: true,
                 extractTables: true
             });
         }
         else {
+            console.log(`[${activityId}] ⚡ Using standard parallel processing...`);
             // Use standard parallel processing (still much faster than before)
-            result = await client.processDocument(filePath, {
+            result = await client.processDocument(workingFilePath, {
                 strategy: 'fast',
                 extractImages: false,
                 extractTables: true,
@@ -191,13 +346,13 @@ export async function extractTextActivity(filePath) {
         }
         const { extractedText, tables, metadata } = result;
         // Log processing results
-        console.log(`Extraction completed successfully:`);
-        console.log(`- Pages: ${metadata.pageCount}`);
-        console.log(`- Elements: ${metadata.elementCount}`);
-        console.log(`- Text length: ${extractedText.length} characters`);
-        console.log(`- Tables found: ${tables.length}`);
-        console.log(`- Processing time: ${metadata.processingTime}ms`);
-        console.log(`- Parallel processing: enabled`);
+        console.log(`[${activityId}] ✅ Extraction completed successfully:`);
+        console.log(`  - Pages: ${metadata.pageCount || 'unknown'}`);
+        console.log(`  - Elements: ${metadata.elementCount || 'unknown'}`);
+        console.log(`  - Text length: ${extractedText.length} characters`);
+        console.log(`  - Tables found: ${tables.length}`);
+        console.log(`  - Processing time: ${metadata.processingTime}ms`);
+        console.log(`  - Method: parallel processing enabled`);
         // Validate extraction
         if (!extractedText || extractedText.trim().length === 0) {
             throw new Error('No text was extracted from the document. The file may be corrupted, empty, or in an unsupported format.');
@@ -205,14 +360,26 @@ export async function extractTextActivity(filePath) {
         // Combine text and table content for comprehensive analysis
         let combinedText = extractedText;
         if (tables.length > 0) {
-            console.log(`Including ${tables.length} tables in the analysis`);
+            console.log(`[${activityId}] 📊 Including ${tables.length} tables in the analysis`);
             const tableTexts = tables.map((table, index) => `\n\n[TABLE ${index + 1} - Page ${table.pageNumber}]\n${table.text}`).join('');
             combinedText += tableTexts;
+        }
+        console.log(`[${activityId}] 🎯 Final extraction result: ${combinedText.length} total characters (including tables)`);
+        // Cleanup temp file if created
+        if (tempFileCreated) {
+            try {
+                await fs.promises.unlink(workingFilePath);
+                await fs.promises.rmdir(path.dirname(workingFilePath));
+                console.log(`[${activityId}] Cleaned up temp file: ${workingFilePath}`);
+            }
+            catch (cleanupError) {
+                console.warn(`[${activityId}] Failed to cleanup temp file: ${cleanupError}`);
+            }
         }
         return combinedText;
     }
     catch (error) {
-        console.error('Text extraction failed:', error);
+        console.error(`[${activityId}] ❌ Text extraction failed:`, error);
         if (error instanceof Error) {
             if (error.message.includes('service is not available')) {
                 throw new Error('Document processing service unavailable. Please check service status and try again.');
@@ -220,8 +387,14 @@ export async function extractTextActivity(filePath) {
             else if (error.message.includes('timeout')) {
                 throw new Error('Document processing timed out. The file may be too large or complex.');
             }
+            else if (error.message.includes('does not exist')) {
+                throw new Error(`Failed to extract text: File not found at path: ${downloadResult.filePath || 'unknown'}`);
+            }
+            else if (error.message.includes('Unsupported file type')) {
+                throw new Error(`Failed to extract text: ${error.message}`);
+            }
             else {
-                throw new Error(`Document processing failed: ${error.message}`);
+                throw new Error(`Failed to extract text: ${error.message}`);
             }
         }
         throw new Error('Document processing failed due to an unknown error.');
@@ -631,17 +804,16 @@ export async function notifyUserActivity(notification) {
  */
 export async function cleanupTempFilesActivity(input) {
     const { activityId } = getActivityInfo();
-    console.log(`[${activityId}] Cleaning up files for: ${input.analysisId}`);
+    console.log(`[${activityId}] Cleaning up files for: ${input.tempDir}`);
     try {
-        const tempDir = path.join('/tmp', input.analysisId);
         // Check if directory exists and remove it
         try {
-            await fs.access(tempDir);
-            await fs.rm(tempDir, { recursive: true, force: true });
-            console.log(`[${activityId}] Temp directory removed: ${tempDir}`);
+            await fs.access(input.tempDir);
+            await fs.rm(input.tempDir, { recursive: true, force: true });
+            console.log(`[${activityId}] Temp directory removed: ${input.tempDir}`);
         }
         catch (err) {
-            console.log(`[${activityId}] Temp directory not found or already removed: ${tempDir}`);
+            console.log(`[${activityId}] Temp directory not found or already removed: ${input.tempDir}`);
         }
         return true;
     }
@@ -653,6 +825,13 @@ export async function cleanupTempFilesActivity(input) {
 }
 // Helper functions
 function getFileType(extension) {
+    // Handle undefined, null, or empty extension
+    if (!extension || typeof extension !== 'string') {
+        console.warn(`Invalid file extension provided: ${extension}, defaulting to 'pdf'`);
+        return 'pdf'; // Default to PDF for construction documents
+    }
+    // Ensure extension starts with a dot and is lowercase
+    const normalizedExt = extension.startsWith('.') ? extension.toLowerCase() : `.${extension}`.toLowerCase();
     const typeMap = {
         '.pdf': 'pdf',
         '.docx': 'docx',
@@ -661,8 +840,17 @@ function getFileType(extension) {
         '.md': 'md',
         '.rtf': 'rtf',
         '.odt': 'odt',
+        '.xls': 'xls',
+        '.xlsx': 'xlsx',
+        '.ppt': 'ppt',
+        '.pptx': 'pptx',
     };
-    return typeMap[extension] || 'unknown';
+    const fileType = typeMap[normalizedExt];
+    if (!fileType) {
+        console.warn(`Unknown file extension: ${normalizedExt}, treating as generic document`);
+        return 'pdf'; // Default to PDF for unknown construction document types
+    }
+    return fileType;
 }
 function detectLanguage(text) {
     // Mock language detection
@@ -894,5 +1082,157 @@ function analyzeConstructionDocument(text) {
     result.trades = [...new Set(result.trades)];
     result.materials = [...new Set(result.materials)].slice(0, 8);
     return result;
+}
+/**
+ * Convert PDF to images for GPT-4o vision processing
+ * This is the modern ChatGPT approach: PDF → Images → Vision Model
+ */
+export async function convertPDFToImagesActivity(downloadResult) {
+    const { activityId } = getActivityInfo();
+    console.log(`[${activityId}] Starting PDF to images conversion: ${downloadResult.fileName}`);
+    // Only process PDF files
+    if (!downloadResult.fileName.toLowerCase().endsWith('.pdf')) {
+        throw new Error(`PDF to images conversion only supports PDF files. Received: ${downloadResult.fileType}`);
+    }
+    try {
+        // Configure S3 client
+        const s3Client = new S3Client({
+            region: process.env.AWS_REGION || 'us-east-1',
+            credentials: {
+                accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+            },
+        });
+        const bucket = process.env.AWS_S3_BUCKET || 'pip-ai-storage-qo56jg9l';
+        // Create PDF to images client
+        const pdfClient = createPDFToImagesClient(s3Client, bucket);
+        // Use presigned URL for PDF processing (no S3 authentication needed)
+        const pdfPresignedUrl = downloadResult.presignedUrl;
+        // Generate output prefix for images
+        const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '/');
+        const outputPrefix = `images/${timestamp}/${activityId}`;
+        console.log(`[${activityId}] Converting PDF to images:`);
+        console.log(`  - Using presigned URL for download`);
+        console.log(`  - Output Prefix: ${outputPrefix}`);
+        console.log(`  - Bucket: ${bucket}`);
+        // Convert PDF to images using presigned URL
+        const result = await pdfClient.convertPDFToImages(pdfPresignedUrl, outputPrefix, activityId);
+        // Generate presigned URLs for all converted images
+        console.log(`[${activityId}] 🔗 Generating presigned URLs for ${result.totalPages} images...`);
+        const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+        const presignedS3Client = new S3Client({
+            region: process.env.AWS_REGION || 'us-east-1',
+            credentials: {
+                accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+            },
+        });
+        const imagePresignedUrls = [];
+        for (let pageNumber = 1; pageNumber <= result.totalPages; pageNumber++) {
+            const s3Key = `${outputPrefix}/page-${pageNumber.toString().padStart(3, '0')}.png`;
+            const getObjectCommand = new GetObjectCommand({
+                Bucket: bucket,
+                Key: s3Key,
+            });
+            // Generate presigned URL valid for 2 hours
+            const presignedUrl = await getSignedUrl(presignedS3Client, getObjectCommand, { expiresIn: 7200 });
+            imagePresignedUrls.push(presignedUrl);
+        }
+        console.log(`[${activityId}] ✅ PDF to images conversion completed:`);
+        console.log(`  - Total Pages: ${result.totalPages}`);
+        console.log(`  - Processing Time: ${result.processingTimeMs}ms`);
+        console.log(`  - Generated ${imagePresignedUrls.length} presigned URLs`);
+        return {
+            imagePresignedUrls,
+            totalPages: result.totalPages,
+            processingTimeMs: result.processingTimeMs,
+            bucket
+        };
+    }
+    catch (error) {
+        console.error(`[${activityId}] ❌ PDF to images conversion failed:`, error);
+        throw new Error(`PDF to images conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+/**
+ * Analyze images using GPT-4o vision model
+ * Uses presigned URLs directly with OpenAI Vision API
+ */
+export async function analyzeImagesWithVisionActivity(conversionResult) {
+    const { activityId } = getActivityInfo();
+    console.log(`[${activityId}] Starting GPT-4o vision analysis of ${conversionResult.totalPages} images`);
+    try {
+        // Check if OpenAI API key is available
+        if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('sk-your-')) {
+            throw new Error('OpenAI API key not configured - cannot run vision analysis');
+        }
+        // Initialize OpenAI client
+        const OpenAI = await import('openai');
+        const openai = new OpenAI.default({
+            apiKey: process.env.OPENAI_API_KEY,
+        });
+        console.log(`[${activityId}] Processing ${conversionResult.totalPages} pages with GPT-4o vision...`);
+        // Use presigned URLs directly for GPT-4o vision analysis
+        const imageMessages = conversionResult.imagePresignedUrls.map(presignedUrl => ({
+            type: "image_url",
+            image_url: {
+                url: presignedUrl,
+                detail: "high"
+            }
+        }));
+        console.log(`[${activityId}] 🔄 Sending ${imageMessages.length} presigned URLs to GPT-4o vision...`);
+        // Construction-specific vision analysis prompt
+        const visionPrompt = `You are EstimAItor, the greatest commercial construction estimator ever. Analyze these construction document pages and extract:
+
+1. **TRADES IDENTIFIED** (use CSI MasterFormat codes where applicable)
+2. **SCOPE OF WORK** for each trade
+3. **MATERIAL TAKEOFFS** with quantities
+4. **PROJECT DETAILS** (name, location, type)
+5. **SPECIFICATIONS** and requirements
+6. **DIMENSIONS** and measurements
+7. **DETAILS** from drawings, diagrams, and tables
+
+Focus on:
+- Electrical systems, panels, lighting, power
+- HVAC systems, ductwork, equipment
+- Plumbing fixtures, piping, drainage
+- Structural elements, concrete, steel
+- Architectural finishes, doors, windows
+- Site work, utilities, paving
+
+Extract ALL text, tables, dimensions, and technical details. Be comprehensive and detailed.`;
+        // Call GPT-4o Vision API with presigned URLs
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+                {
+                    role: "system",
+                    content: visionPrompt
+                },
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "text",
+                            text: `Please analyze these ${conversionResult.totalPages} construction document pages and provide complete trade analysis, scope of work, and material takeoffs:`
+                        },
+                        ...imageMessages
+                    ]
+                }
+            ],
+            max_tokens: 4000,
+            temperature: 0.1,
+        });
+        const analysisText = response.choices[0].message.content || '';
+        console.log(`[${activityId}] ✅ GPT-4o vision analysis completed: ${analysisText.length} characters`);
+        if (!analysisText || analysisText.trim().length === 0) {
+            throw new Error('GPT-4o vision analysis returned empty response');
+        }
+        return analysisText;
+    }
+    catch (error) {
+        console.error(`[${activityId}] ❌ Vision analysis failed:`, error);
+        throw new Error(`Vision analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
 }
 //# sourceMappingURL=activities.js.map

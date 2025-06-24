@@ -38,7 +38,7 @@ interface AnalysisResult {
 }
 /**
  * Main PIP AI Document Analysis Workflow
- * Orchestrates the complete analysis pipeline
+ * Orchestrates the complete analysis pipeline with modern PDF → Images → Vision approach
  */
 export declare function analyzeDocumentWorkflow(input: AnalysisInput): Promise<AnalysisResult>;
 /**

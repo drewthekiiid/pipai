@@ -8,10 +8,14 @@ interface DownloadFileInput {
     analysisId: string;
 }
 interface DownloadFileResult {
-    localPath: string;
+    filePath: string;
     fileType: string;
+    fileName: string;
     fileSize: number;
-    hash: string;
+    tempDir: string;
+    fileContent: string;
+    originalUrl: string;
+    presignedUrl: string;
 }
 interface GenerateEmbeddingsInput {
     text: string;
@@ -39,9 +43,10 @@ interface AIAnalysisResult {
  */
 export declare function downloadFileActivity(input: DownloadFileInput): Promise<DownloadFileResult>;
 /**
- * Extract text content from various file formats using Unstructured-IO
+ * Extract text content from downloaded file - works with distributed workers
+ * by accepting either file path or base64 content
  */
-export declare function extractTextActivity(filePath: string): Promise<string>;
+export declare function extractTextFromDownloadActivity(downloadResult: DownloadFileResult): Promise<string>;
 /**
  * Generate embeddings for text using OpenAI or other embedding models
  */
@@ -68,7 +73,26 @@ export declare function notifyUserActivity(notification: {
  * Cleanup temporary files and resources
  */
 export declare function cleanupTempFilesActivity(input: {
-    analysisId: string;
+    tempDir: string;
 }): Promise<boolean>;
+/**
+ * Convert PDF to images for GPT-4o vision processing
+ * This is the modern ChatGPT approach: PDF → Images → Vision Model
+ */
+export declare function convertPDFToImagesActivity(downloadResult: DownloadFileResult): Promise<{
+    imagePresignedUrls: string[];
+    totalPages: number;
+    processingTimeMs: number;
+    bucket: string;
+}>;
+/**
+ * Analyze images using GPT-4o vision model
+ * Uses presigned URLs directly with OpenAI Vision API
+ */
+export declare function analyzeImagesWithVisionActivity(conversionResult: {
+    imagePresignedUrls: string[];
+    totalPages: number;
+    bucket: string;
+}): Promise<string>;
 export {};
 //# sourceMappingURL=activities.d.ts.map

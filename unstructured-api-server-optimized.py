@@ -325,12 +325,13 @@ if __name__ == "__main__":
     import uvicorn
     
     # HIGH-PERFORMANCE SERVER CONFIGURATION
-    logger.info("🚀 Starting HIGH-PERFORMANCE Unstructured Server...")
+    port = int(os.getenv("UNSTRUCTURED_PORT", 8001))  # Use env var or default to 8001
+    logger.info(f"🚀 Starting HIGH-PERFORMANCE Unstructured Server on port {port}...")
     
     uvicorn.run(
         app,
         host="0.0.0.0", 
-        port=8001,  # Use different port to avoid conflicts
+        port=port,
         log_level="info",
         workers=1,  # Single worker with internal parallelization
         loop="asyncio",

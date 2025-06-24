@@ -7,7 +7,8 @@ primary_region = "iad"
 [env]
   UNSTRUCTURED_HOST = "0.0.0.0"
   UNSTRUCTURED_PORT = "8000"
-  UNSTRUCTURED_WORKERS = "4"
+  UNSTRUCTURED_WORKERS = "8"
+  UNSTRUCTURED_MAX_THREADS = "32"
   PYTHONUNBUFFERED = "1"
 
 [http_service]
@@ -15,26 +16,27 @@ primary_region = "iad"
   force_https = true
   auto_stop_machines = false
   auto_start_machines = true
-  min_machines_running = 2
-  max_machines_running = 4
+  min_machines_running = 1
+  max_machines_running = 2
 
   [[http_service.checks]]
-    grace_period = "30s"
-    interval = "15s"
+    grace_period = "60s"
+    interval = "30s"
     method = "GET"
     path = "/healthcheck"
-    timeout = "5s"
+    timeout = "10s"
 
 [build]
   image = "downloads.unstructured.io/unstructured-io/unstructured:latest"
 
 [vm]
-  cpu_kind = "shared"
-  cpus = 2
-  memory_mb = 4096
+  gpu_kind = "l40s"
+  cpus = 8
+  memory_mb = 32768
 
 [deploy]
   strategy = "rolling"
+  max_unavailable = 0
 
 [[restart]]
   policy = "always" 

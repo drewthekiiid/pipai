@@ -3,6 +3,9 @@
 # 🚀 PIP AI - Start Optimized Unstructured Server
 # HIGH-PERFORMANCE document processing with maximum parallelization
 
+# Start Optimized Unstructured Service with Configurable Port
+# Usage: ./start-unstructured-optimized.sh [port]
+
 set -e
 
 # Colors for output
@@ -12,6 +15,9 @@ NC='\033[0m' # No Color
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_PATH="$PROJECT_ROOT/apps/api/venv"
+
+# Default to port 8001, or use provided port
+UNSTRUCTURED_PORT=${1:-${UNSTRUCTURED_PORT:-8001}}
 
 echo -e "${BLUE}🚀 Starting PIP AI Optimized Unstructured Server...${NC}"
 echo -e "${BLUE}   Maximum Quality & Parallel Processing${NC}"
@@ -24,12 +30,15 @@ if [ ! -d "$VENV_PATH" ]; then
     exit 1
 fi
 
+# Export the port for the Python script
+export UNSTRUCTURED_PORT
+
 # Activate virtual environment and start optimized server
 cd "$PROJECT_ROOT"
 source "$VENV_PATH/bin/activate"
 
 echo -e "${GREEN}✅ Virtual environment activated${NC}"
-echo -e "${GREEN}✅ Starting optimized server on port 8001...${NC}"
+echo -e "${GREEN}✅ Starting optimized server on port $UNSTRUCTURED_PORT...${NC}"
 echo
 
 # Start with maximum performance settings

@@ -4,7 +4,7 @@
  */
 import { defineQuery, defineSignal, log, proxyActivities, setHandler, sleep } from '@temporalio/workflow';
 // Configure activity proxies with timeouts optimized for parallel execution
-const { downloadFileActivity, extractTextActivity, generateEmbeddingsActivity, runAIAnalysisActivity, saveAnalysisActivity, notifyUserActivity, cleanupTempFilesActivity } = proxyActivities({
+const { downloadFileActivity, extractTextFromDownloadActivity, convertPDFToImagesActivity, analyzeImagesWithVisionActivity, generateEmbeddingsActivity, runAIAnalysisActivity, saveAnalysisActivity, notifyUserActivity, cleanupTempFilesActivity } = proxyActivities({
     startToCloseTimeout: '8 minutes', // Increased for large PDF processing
     retry: {
         initialInterval: '1s',
@@ -21,13 +21,22 @@ const { runAIAnalysisActivity: runLongAIAnalysis } = proxyActivities({
         maximumAttempts: 2, // Fewer retries for expensive AI calls
     },
 });
+// Configure extended timeout for vision analysis (multiple images)
+const { analyzeImagesWithVisionActivity: runVisionAnalysis } = proxyActivities({
+    startToCloseTimeout: '12 minutes', // Extended for GPT-4o vision processing
+    retry: {
+        initialInterval: '3s',
+        maximumInterval: '60s',
+        maximumAttempts: 2, // Fewer retries for expensive vision calls
+    },
+});
 // Workflow signals and queries
 export const analysisProgressSignal = defineSignal('analysisProgress');
 export const cancelAnalysisSignal = defineSignal('cancelAnalysis');
 export const getAnalysisStatusQuery = defineQuery('getAnalysisStatus');
 /**
  * Main PIP AI Document Analysis Workflow
- * Orchestrates the complete analysis pipeline
+ * Orchestrates the complete analysis pipeline with modern PDF → Images → Vision approach
  */
 export async function analyzeDocumentWorkflow(input) {
     const analysisId = `analysis-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -35,6 +44,8 @@ export async function analyzeDocumentWorkflow(input) {
         step: 'initializing',
         progress: 0,
     };
+    // Declare downloadResult at function scope for cleanup access
+    let downloadResult;
     // Set up signal handlers
     setHandler(analysisProgressSignal, (update) => {
         status = { ...status, ...update };
@@ -51,31 +62,62 @@ export async function analyzeDocumentWorkflow(input) {
         status = { step: 'Manager Agent: Processing document upload...', progress: 5 };
         if (status.canceled)
             throw new Error('Analysis canceled');
-        // Simulate realistic delay for document intake
         await sleep(800);
         status = { step: 'Manager Agent: Validating construction document format...', progress: 10 };
-        const downloadResult = await downloadFileActivity({
+        downloadResult = await downloadFileActivity({
             fileUrl: input.fileUrl,
             userId: input.userId,
             analysisId,
         });
-        // Step 2: File Reader Agent - Document Processing
-        status = { step: 'File Reader Agent: Initializing PDF extraction...', progress: 15 };
-        if (status.canceled)
-            throw new Error('Analysis canceled');
-        await sleep(600);
-        status = { step: 'File Reader Agent: Extracting text from construction plans...', progress: 20 };
-        await sleep(400);
-        status = { step: 'File Reader Agent: Analyzing document structure and content...', progress: 25 };
-        const textResult = await extractTextActivity(downloadResult.localPath);
+        // Validate download result
+        if (!downloadResult || !downloadResult.filePath) {
+            throw new Error('File download failed - no valid file path returned');
+        }
+        log.info('File download completed successfully', {
+            analysisId,
+            filePath: downloadResult.filePath,
+            fileSize: downloadResult.fileSize,
+            fileType: downloadResult.fileType
+        });
+        // Step 2: Choose processing path based on file type
+        let textResult;
+        if (downloadResult.fileName.toLowerCase().endsWith('.pdf')) {
+            // 🚀 MODERN APPROACH: PDF → Images → GPT-4o Vision
+            status = { step: 'PDF Processor: Converting PDF pages to high-resolution images...', progress: 15 };
+            if (status.canceled)
+                throw new Error('Analysis canceled');
+            await sleep(600);
+            const imagesResult = await convertPDFToImagesActivity(downloadResult);
+            status = { step: `Vision Agent: Analyzing ${imagesResult.totalPages} pages with GPT-4o Vision...`, progress: 25 };
+            await sleep(400);
+            status = { step: 'Vision Agent: Extracting text, tables, and technical details...', progress: 35 };
+            textResult = await runVisionAnalysis(imagesResult);
+            log.info('PDF → Images → Vision processing completed', {
+                analysisId,
+                totalPages: imagesResult.totalPages,
+                processingTime: imagesResult.processingTimeMs,
+                textLength: textResult.length
+            });
+        }
+        else {
+            // TRADITIONAL APPROACH: Direct text extraction for non-PDF files
+            status = { step: 'File Reader Agent: Extracting text from document...', progress: 20 };
+            await sleep(400);
+            status = { step: 'File Reader Agent: Analyzing document structure...', progress: 30 };
+            textResult = await extractTextFromDownloadActivity(downloadResult);
+            log.info('Traditional text extraction completed', {
+                analysisId,
+                textLength: textResult.length
+            });
+        }
         // Step 3 & 4: Trade Mapper + Estimator Agents - PARALLEL PROCESSING
-        status = { step: 'Trade Mapper Agent: Scanning for CSI divisions and trades...', progress: 35 };
+        status = { step: 'Trade Mapper Agent: Scanning for CSI divisions and trades...', progress: 45 };
         if (status.canceled)
             throw new Error('Analysis canceled');
         await sleep(1000);
-        status = { step: 'Trade Mapper Agent: Detecting architectural and structural elements...', progress: 45 };
+        status = { step: 'Trade Mapper Agent: Detecting architectural and structural elements...', progress: 55 };
         await sleep(800);
-        status = { step: 'Estimator Agent: Initializing parallel analysis pipeline...', progress: 55 };
+        status = { step: 'Estimator Agent: Initializing parallel analysis pipeline...', progress: 65 };
         // 🚀 PARALLEL EXECUTION: Run embeddings and AI analysis simultaneously
         const [embeddingsResult, aiResult] = await Promise.all([
             // Trade Mapper Agent - Embeddings generation
@@ -89,19 +131,23 @@ export async function analyzeDocumentWorkflow(input) {
             // Estimator Agent - AI analysis  
             (async () => {
                 log.info('Starting AI analysis in parallel', { analysisId });
-                await sleep(300); // Brief delay for UI progression
-                status = { step: 'Estimator Agent: Running GPT-4o construction analysis...', progress: 65 };
+                await sleep(300);
+                status = { step: 'Estimator Agent: Running GPT-4o construction analysis...', progress: 75 };
                 await sleep(200);
-                status = { step: 'Estimator Agent: Generating trade detection and scope of work...', progress: 75 };
+                status = { step: 'Estimator Agent: Generating trade detection and scope of work...', progress: 85 };
                 return await runLongAIAnalysis({
                     text: textResult,
                     analysisType: input.analysisType,
-                    metadata: { pageCount: 0, processingTime: 0, processingMethod: 'unstructured-parallel' }, // Simplified metadata
+                    metadata: {
+                        pageCount: 0,
+                        processingTime: 0,
+                        processingMethod: downloadResult.fileName.toLowerCase().endsWith('.pdf') ? 'pdf-images-vision' : 'traditional-ocr'
+                    },
                 });
             })()
         ]);
         // Step 5 & 6: Exporter + Manager Agents - PARALLEL COMPLETION
-        status = { step: 'Exporter Agent: Structuring analysis results...', progress: 85 };
+        status = { step: 'Exporter Agent: Structuring analysis results...', progress: 90 };
         if (status.canceled)
             throw new Error('Analysis canceled');
         await sleep(400);
@@ -117,10 +163,10 @@ export async function analyzeDocumentWorkflow(input) {
                 fileType: downloadResult.fileType,
                 fileSize: downloadResult.fileSize,
                 processingTime: Date.now(),
-                processingMethod: 'unstructured-parallel',
+                processingMethod: downloadResult.fileName.toLowerCase().endsWith('.pdf') ? 'pdf-images-vision' : 'traditional-ocr',
             },
         };
-        status = { step: 'Manager Agent: Finalizing deliverables and notifications...', progress: 90 };
+        status = { step: 'Manager Agent: Finalizing deliverables and notifications...', progress: 95 };
         // 🚀 PARALLEL EXECUTION: Save analysis and notify user simultaneously  
         await Promise.all([
             // Exporter Agent - Save to database
@@ -134,7 +180,7 @@ export async function analyzeDocumentWorkflow(input) {
             })
         ]);
         // Cleanup and final status (can run cleanup in background)
-        const cleanupPromise = cleanupTempFilesActivity({ analysisId });
+        const cleanupPromise = cleanupTempFilesActivity({ tempDir: downloadResult.tempDir });
         status = { step: 'Analysis Complete: Ready for download and export', progress: 100 };
         // Ensure cleanup completes
         await cleanupPromise;
@@ -160,7 +206,10 @@ export async function analyzeDocumentWorkflow(input) {
         };
         // Attempt cleanup even on failure
         try {
-            await cleanupTempFilesActivity({ analysisId });
+            // Only cleanup if we have the download result with temp directory
+            if (downloadResult?.tempDir) {
+                await cleanupTempFilesActivity({ tempDir: downloadResult.tempDir });
+            }
         }
         catch (cleanupError) {
             log.warn('Cleanup failed', { analysisId, cleanupError });
