@@ -1389,7 +1389,7 @@ export async function convertPDFToImagesActivity(downloadResult: DownloadFileRes
 
 /**
  * Analyze images using GPT-4o vision model
- * Uses presigned URLs directly with OpenAI Vision API
+ * Processes images in batches for better performance with large documents
  */
 export async function analyzeImagesWithVisionActivity(conversionResult: {
   imagePresignedUrls: string[];
@@ -1413,74 +1413,177 @@ export async function analyzeImagesWithVisionActivity(conversionResult: {
 
     console.log(`[${activityId}] Processing ${conversionResult.totalPages} pages with GPT-4o vision...`);
 
-    // Use presigned URLs directly for GPT-4o vision analysis
-    const imageMessages = conversionResult.imagePresignedUrls.map(presignedUrl => ({
-      type: "image_url" as const,
-      image_url: {
-        url: presignedUrl,
-        detail: "high" as const
-      }
-    }));
-
-    console.log(`[${activityId}] 🔄 Sending ${imageMessages.length} presigned URLs to GPT-4o vision...`);
-
-    // Construction-specific vision analysis prompt
-    const visionPrompt = `You are EstimAItor, the greatest commercial construction estimator ever. Analyze these construction document pages and extract:
-
-1. **TRADES IDENTIFIED** (use CSI MasterFormat codes where applicable)
-2. **SCOPE OF WORK** for each trade
-3. **MATERIAL TAKEOFFS** with quantities
-4. **PROJECT DETAILS** (name, location, type)
-5. **SPECIFICATIONS** and requirements
-6. **DIMENSIONS** and measurements
-7. **DETAILS** from drawings, diagrams, and tables
-
-Focus on:
-- Electrical systems, panels, lighting, power
-- HVAC systems, ductwork, equipment
-- Plumbing fixtures, piping, drainage
-- Structural elements, concrete, steel
-- Architectural finishes, doors, windows
-- Site work, utilities, paving
-
-Extract ALL text, tables, dimensions, and technical details. Be comprehensive and detailed.`;
-
-    // Call GPT-4o Vision API with presigned URLs
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: visionPrompt
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `Please analyze these ${conversionResult.totalPages} construction document pages and provide complete trade analysis, scope of work, and material takeoffs:`
-            },
-            ...imageMessages
-          ]
-        }
-      ],
-      max_tokens: 4000,
-      temperature: 0.1,
-    });
-
-    const analysisText = response.choices[0].message.content || '';
-
-    console.log(`[${activityId}] ✅ GPT-4o vision analysis completed: ${analysisText.length} characters`);
-
-    if (!analysisText || analysisText.trim().length === 0) {
-      throw new Error('GPT-4o vision analysis returned empty response');
+    // For better performance with large documents, process in batches
+    const BATCH_SIZE = 2; // ULTRA-FAST: Reduced from 3 to 2 for maximum speed
+    const batches: string[][] = [];
+    
+    for (let i = 0; i < conversionResult.imagePresignedUrls.length; i += BATCH_SIZE) {
+      batches.push(conversionResult.imagePresignedUrls.slice(i, i + BATCH_SIZE));
     }
 
-    return analysisText;
+    console.log(`[${activityId}] 🔄 Processing ${batches.length} batches of images (${BATCH_SIZE} images per batch)...`);
+
+    let allExtractedText = '';
+    
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      const startPage = batchIndex * BATCH_SIZE + 1;
+      const endPage = Math.min(startPage + batch.length - 1, conversionResult.totalPages);
+      
+      console.log(`[${activityId}] 📄 Processing batch ${batchIndex + 1}/${batches.length}: pages ${startPage}-${endPage}`);
+
+      // Create content array for this batch
+      const content = [
+        {
+          type: 'text' as const,
+          text: `Extract all text, tables, and technical details from these construction document pages ${startPage}-${endPage}. Preserve formatting, numbers, measurements, and technical specifications exactly as shown. Include all visible text including headers, footers, annotations, and table data.`
+        },
+        ...batch.map(url => ({
+          type: 'image_url' as const,
+          image_url: {
+            url: url,
+            detail: 'high' as const
+          }
+        }))
+      ];
+
+      try {
+        // Call GPT-4o Vision for this batch
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "user",
+              content: content
+            }
+          ],
+          max_tokens: 4000,
+          temperature: 0.1, // Low temperature for accurate text extraction
+        });
+
+        const batchText = response.choices[0].message.content || '';
+        
+        // Add page markers for organization
+        allExtractedText += `\n\n=== PAGES ${startPage}-${endPage} ===\n${batchText}\n`;
+        
+        console.log(`[${activityId}] ✅ Batch ${batchIndex + 1} completed: ${batchText.length} characters extracted`);
+        
+        // Small delay between batches to respect rate limits
+        if (batchIndex < batches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+      } catch (error) {
+        console.error(`[${activityId}] ❌ Failed to process batch ${batchIndex + 1}:`, error);
+        throw new Error(`Vision analysis failed for pages ${startPage}-${endPage}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    console.log(`[${activityId}] ✅ GPT-4o vision analysis completed: ${allExtractedText.length} characters`);
+    return allExtractedText;
 
   } catch (error) {
     console.error(`[${activityId}] ❌ Vision analysis failed:`, error);
     throw new Error(`Vision analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Convert a specific page range of a PDF to images for parallel processing
+ * This activity handles a chunk of pages and can be run in parallel with other chunks
+ */
+export async function convertPDFPageRangeActivity(input: {
+  downloadResult: DownloadFileResult;
+  startPage: number;
+  endPage: number;
+  chunkIndex: number;
+}): Promise<{
+  imagePresignedUrls: string[];
+  pageCount: number;
+  processingTimeMs: number;
+  bucket: string;
+}> {
+  const { activityId } = getActivityInfo();
+  const { downloadResult, startPage, endPage, chunkIndex } = input;
+  
+  console.log(`[${activityId}] Converting PDF pages ${startPage}-${endPage} (chunk ${chunkIndex})`);
+
+  try {
+    // Configure S3 client
+    const s3Client = new S3Client({
+      region: process.env.AWS_REGION || 'us-east-1',
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      },
+    });
+
+    const bucket = process.env.AWS_S3_BUCKET || 'pip-ai-storage-qo56jg9l';
+
+    // Create PDF to images client
+    const pdfClient = createPDFToImagesClient(s3Client, bucket);
+
+    // Generate output prefix for this chunk
+    const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '/');
+    const outputPrefix = `images/${timestamp}/${activityId}/chunk_${chunkIndex}`;
+
+    console.log(`[${activityId}] Processing chunk ${chunkIndex}:`);
+    console.log(`  - Pages: ${startPage}-${endPage}`);
+    console.log(`  - Output Prefix: ${outputPrefix}`);
+    console.log(`  - Bucket: ${bucket}`);
+
+    // Convert specific page range using presigned URL
+    const result = await pdfClient.convertPDFPageRange(
+      downloadResult.presignedUrl, 
+      outputPrefix, 
+      activityId,
+      startPage,
+      endPage
+    );
+
+    // Generate presigned URLs for the converted images
+    console.log(`[${activityId}] 🔗 Generating presigned URLs for ${result.totalPages} images...`);
+    
+    const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+    const presignedS3Client = new S3Client({
+      region: process.env.AWS_REGION || 'us-east-1',
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      },
+    });
+    
+    const imagePresignedUrls: string[] = [];
+    
+    // Use local page numbering (1-based within chunk) to match PDF client output
+    const pageCount = endPage - startPage + 1;
+    for (let localPageNumber = 1; localPageNumber <= pageCount; localPageNumber++) {
+      const s3Key = `${outputPrefix}/page-${localPageNumber.toString().padStart(3, '0')}.png`;
+      const getObjectCommand = new GetObjectCommand({
+        Bucket: bucket,
+        Key: s3Key,
+      });
+      
+      // Generate presigned URL valid for 2 hours
+      const presignedUrl = await getSignedUrl(presignedS3Client, getObjectCommand, { expiresIn: 7200 });
+      imagePresignedUrls.push(presignedUrl);
+    }
+
+    console.log(`[${activityId}] ✅ Chunk ${chunkIndex} completed:`);
+    console.log(`  - Pages: ${startPage}-${endPage}`);
+    console.log(`  - Processing Time: ${result.processingTimeMs}ms`);
+    console.log(`  - Generated ${imagePresignedUrls.length} presigned URLs`);
+
+    return {
+      imagePresignedUrls,
+      pageCount: result.totalPages,
+      processingTimeMs: result.processingTimeMs,
+      bucket
+    };
+
+  } catch (error) {
+    console.error(`[${activityId}] ❌ PDF page range conversion failed:`, error);
+    throw new Error(`PDF page range conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 

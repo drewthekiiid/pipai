@@ -16,9 +16,10 @@ const {
   runAIAnalysisActivity,
   saveAnalysisActivity,
   notifyUserActivity,
-  cleanupTempFilesActivity 
+  cleanupTempFilesActivity,
+  convertPDFPageRangeActivity
 } = proxyActivities<typeof activities>({
-  startToCloseTimeout: '8 minutes',  // Increased for large PDF processing
+  startToCloseTimeout: '8 minutes',  // Standard timeout - presigned URLs should be fast
   retry: {
     initialInterval: '1s',
     maximumInterval: '30s',
@@ -43,6 +44,16 @@ const { analyzeImagesWithVisionActivity: runVisionAnalysis } = proxyActivities<t
     initialInterval: '3s',
     maximumInterval: '60s', 
     maximumAttempts: 2,  // Fewer retries for expensive vision calls
+  },
+});
+
+// Configure longer timeout for parallel PDF processing activities
+const { convertPDFPageRangeActivity: convertPDFPageRangeWithTimeout } = proxyActivities<typeof activities>({
+  startToCloseTimeout: '15 minutes',  // Longer timeout for PDF processing
+  retry: {
+    initialInterval: '2s',
+    maximumInterval: '60s', 
+    maximumAttempts: 2,  // Fewer retries for expensive operations
   },
 });
 
@@ -142,26 +153,113 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
     // Step 2: Choose processing path based on file type
     let textResult: string;
     
+    // 🔍 DEBUG: Log filename detection
+    console.log(`🔍 [DEBUG] Filename detection:`);
+    console.log(`  - downloadResult.fileName: "${downloadResult.fileName}"`);
+    console.log(`  - toLowerCase(): "${downloadResult.fileName.toLowerCase()}"`);
+    console.log(`  - endsWith('.pdf'): ${downloadResult.fileName.toLowerCase().endsWith('.pdf')}`);
+    console.log(`  - Will route to: ${downloadResult.fileName.toLowerCase().endsWith('.pdf') ? 'PDF→Images→Vision' : 'Text Extraction'}`);
+    
     if (downloadResult.fileName.toLowerCase().endsWith('.pdf')) {
-      // 🚀 MODERN APPROACH: PDF → Images → GPT-4o Vision
+      // 🚀 MODERN APPROACH: PDF → Images → GPT-4o Vision with PARALLEL WORKERS
       status = { step: 'PDF Processor: Converting PDF pages to high-resolution images...', progress: 15 };
       if (status.canceled) throw new Error('Analysis canceled');
       
       await sleep(600);
       
-      const imagesResult = await convertPDFToImagesActivity(downloadResult);
+      // For large PDFs, split into parallel activities across multiple workers
+      // 🚀 DYNAMIC OPTIMIZATION: Calculate optimal chunk size based on file size
+      const fileSizeMB = downloadResult.fileSize / (1024 * 1024);
+      const OPTIMAL_PAGES_PER_CHUNK = fileSizeMB > 10 ? 2 : fileSizeMB > 5 ? 3 : 5; // ULTRA-FINE: 2 pages for huge files
+      const MAX_WORKERS = 20; // EXTREME: Use up to 20 workers for maximum parallelization
+      const ESTIMATED_PAGES = Math.ceil(fileSizeMB * 10); // Rough estimate: 10 pages per MB
       
-      status = { step: `Vision Agent: Analyzing ${imagesResult.totalPages} pages with GPT-4o Vision...`, progress: 25 };
+      // Calculate optimal number of chunks
+      const optimalChunks = Math.min(MAX_WORKERS, Math.ceil(ESTIMATED_PAGES / OPTIMAL_PAGES_PER_CHUNK));
+      
+      // Create parallel activities for different page ranges
+      const chunkPromises = [];
+      for (let chunkIndex = 0; chunkIndex < optimalChunks; chunkIndex++) { 
+        const startPage = chunkIndex * OPTIMAL_PAGES_PER_CHUNK + 1;
+        const endPage = (chunkIndex + 1) * OPTIMAL_PAGES_PER_CHUNK;
+        
+        chunkPromises.push(
+          convertPDFPageRangeWithTimeout({
+            downloadResult,
+            startPage,
+            endPage,
+            chunkIndex
+          })
+        );
+      }
+      
+      status = { step: `PDF Processor: EXTREME PARALLEL MODE - ${optimalChunks} workers processing ${OPTIMAL_PAGES_PER_CHUNK} pages each...`, progress: 20 };
+      
+      // Process all chunks in parallel across different workers
+      const chunkResults = await Promise.all(chunkPromises);
+      
+      // Filter out empty results (for pages that don't exist)
+      const validResults = chunkResults.filter(result => result.pageCount > 0);
+      
+      // Combine all chunk results
+      const allImageUrls = validResults.flatMap(result => result.imagePresignedUrls);
+      const totalPages = validResults.reduce((sum, result) => sum + result.pageCount, 0);
+      const maxProcessingTime = Math.max(...validResults.map(r => r.processingTimeMs));
+      
+      const imagesResult = {
+        imagePresignedUrls: allImageUrls,
+        totalPages,
+        processingTimeMs: maxProcessingTime,
+        bucket: validResults[0]?.bucket || process.env.AWS_S3_BUCKET || 'pip-ai-storage-qo56jg9l'
+      };
+      
+      status = { step: `Vision Agent: Analyzing ${imagesResult.totalPages} pages with GPT-4o Vision...`, progress: 35 };
       await sleep(400);
       
-      status = { step: 'Vision Agent: Extracting text, tables, and technical details...', progress: 35 };
-      textResult = await runVisionAnalysis(imagesResult);
+      status = { step: 'Vision Agent: PARALLEL VISION ANALYSIS - Processing multiple batches simultaneously...', progress: 45 };
       
-      log.info('PDF → Images → Vision processing completed', {
+      // 🚀 PARALLEL VISION ANALYSIS: Split images into chunks for concurrent processing
+      const IMAGES_PER_VISION_CHUNK = 10; // ULTRA-PARALLEL: Reduced from 15 to 10 for more workers
+      const visionChunks = [];
+      
+      for (let i = 0; i < imagesResult.imagePresignedUrls.length; i += IMAGES_PER_VISION_CHUNK) {
+        const chunkUrls = imagesResult.imagePresignedUrls.slice(i, i + IMAGES_PER_VISION_CHUNK);
+        const chunkStartPage = i + 1;
+        const chunkEndPage = Math.min(i + chunkUrls.length, imagesResult.totalPages);
+        
+        visionChunks.push({
+          imagePresignedUrls: chunkUrls,
+          totalPages: chunkUrls.length,
+          bucket: imagesResult.bucket,
+          chunkInfo: `pages ${chunkStartPage}-${chunkEndPage}`
+        });
+      }
+      
+      console.log(`🔥 EXTREME PARALLEL VISION: ${visionChunks.length} vision workers processing ${IMAGES_PER_VISION_CHUNK} images each`);
+      
+      // Process all vision chunks in parallel across different workers
+      const visionPromises = visionChunks.map((chunk, index) => 
+        runVisionAnalysis(chunk).then(result => ({
+          chunkIndex: index,
+          result,
+          chunkInfo: chunk.chunkInfo
+        }))
+      );
+      
+      const visionResults = await Promise.all(visionPromises);
+      
+      // Combine all vision analysis results
+      textResult = visionResults
+        .sort((a, b) => a.chunkIndex - b.chunkIndex)
+        .map(vr => `\n\n=== VISION CHUNK ${vr.chunkIndex + 1} (${vr.chunkInfo}) ===\n${vr.result}`)
+        .join('');
+      
+      log.info('PARALLEL Vision Analysis completed', {
         analysisId,
         totalPages: imagesResult.totalPages,
-        processingTime: imagesResult.processingTimeMs,
-        textLength: textResult.length
+        visionChunks: visionChunks.length,
+        textLength: textResult.length,
+        chunksProcessed: validResults.length
       });
       
     } else {

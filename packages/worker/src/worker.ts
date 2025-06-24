@@ -104,11 +104,11 @@ async function createWorker(connection: NativeConnection): Promise<Worker> {
       workflowsPath,
       activities,
       // HIGH PERFORMANCE settings for large construction document processing
-      maxConcurrentActivityTaskExecutions: 20,  // MASSIVELY increased for parallel processing
-      maxConcurrentWorkflowTaskExecutions: 10,  // More concurrent workflows
+      maxConcurrentActivityTaskExecutions: 30,  // EXTREME: Increased from 20 to 30
+      maxConcurrentWorkflowTaskExecutions: 15,  // Increased from 10 to 15
       // Polling settings for faster task pickup
-      maxConcurrentActivityTaskPolls: 10,       // More polling threads
-      maxConcurrentWorkflowTaskPolls: 5,        // More workflow polling
+      maxConcurrentActivityTaskPolls: 15,       // EXTREME: Increased from 10 to 15
+      maxConcurrentWorkflowTaskPolls: 8,        // Increased from 5 to 8
       // Heartbeat settings for long-running activities
       maxHeartbeatThrottleInterval: '30s',
       defaultHeartbeatThrottleInterval: '15s',
@@ -119,9 +119,9 @@ async function createWorker(connection: NativeConnection): Promise<Worker> {
 
     console.log('✅ Worker created successfully - HIGH PERFORMANCE MODE');
     console.log(`   Task Queue: ${process.env.TEMPORAL_TASK_QUEUE || 'pip-ai-task-queue'}`);
-    console.log(`   Max Concurrent Activities: 20 (PARALLEL PROCESSING)`);
-    console.log(`   Max Concurrent Workflows: 10`);
-    console.log(`   Activity Polls: 10 | Workflow Polls: 5`);
+    console.log(`   Max Concurrent Activities: 30 (PARALLEL PROCESSING)`);
+    console.log(`   Max Concurrent Workflows: 15`);
+    console.log(`   Activity Polls: 15 | Workflow Polls: 8`);
     
     return worker;
 

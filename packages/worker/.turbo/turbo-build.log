@@ -1,5 +1,0 @@
-
-
-> @pip-ai/worker@0.1.0 build /workspace/packages/worker
-> tsc
-
