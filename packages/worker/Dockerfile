@@ -3,17 +3,49 @@
 
 FROM node:20-slim
 
-# Install system dependencies
+# Install system dependencies for PDF processing and building ImageMagick from source
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    dumb-init \
-    ca-certificates \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    && update-ca-certificates
+  dumb-init \
+  ca-certificates \
+  poppler-utils \
+  ghostscript \
+  build-essential \
+  wget \
+  pkg-config \
+  libtool \
+  libltdl-dev \
+  libpng-dev \
+  libjpeg-dev \
+  libtiff-dev \
+  libfreetype6-dev \
+  libfontconfig1-dev \
+  libwebp-dev \
+  libheif-dev \
+  zlib1g-dev \
+  libbz2-dev \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* \
+  && update-ca-certificates
+
+# Install ImageMagick 7 from source
+RUN cd /tmp \
+  && wget https://imagemagick.org/archive/ImageMagick.tar.gz \
+  && tar xvzf ImageMagick.tar.gz \
+  && cd ImageMagick-* \
+  && ./configure --enable-shared --with-modules --with-quantum-depth=16 --with-hdri \
+  && make -j$(nproc) \
+  && make install \
+  && ldconfig /usr/local/lib \
+  && cd / \
+  && rm -rf /tmp/ImageMagick*
+
+# Configure ImageMagick 7 to allow PDF processing
+RUN sed -i 's/rights="none" pattern="PDF"/rights="read|write" pattern="PDF"/' /usr/local/etc/ImageMagick-7/policy.xml || \
+  echo '<policymap><policy domain="coder" rights="read|write" pattern="PDF" /></policymap>' > /usr/local/etc/ImageMagick-7/policy.xml
 
 # Create non-root user
 RUN groupadd --system --gid 1001 worker && \
-    useradd --system --uid 1001 --gid worker worker
+  useradd --system --uid 1001 --gid worker worker
 
 WORKDIR /app
 

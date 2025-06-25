@@ -1,6 +1,6 @@
 # PIP AI Temporal Worker - Fly.io Configuration
 
-app = 'pip-ai-worker'
+app = 'pip-ai-temporal-workers'
 primary_region = 'iad'
 
 [build]
@@ -14,6 +14,6 @@ primary_region = 'iad'
 # This is a background service that doesn't serve HTTP traffic
 
 [[vm]]
-  memory = '512mb'
-  cpu_kind = 'shared'
-  cpus = 1
+  memory = '8gb'
+  cpu_kind = 'performance'
+  cpus = 2

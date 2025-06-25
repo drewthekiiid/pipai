@@ -76,23 +76,28 @@ export declare function cleanupTempFilesActivity(input: {
     tempDir: string;
 }): Promise<boolean>;
 /**
- * Convert PDF to images for GPT-4o vision processing
- * This is the modern ChatGPT approach: PDF → Images → Vision Model
- */
-export declare function convertPDFToImagesActivity(downloadResult: DownloadFileResult): Promise<{
-    imagePresignedUrls: string[];
-    totalPages: number;
-    processingTimeMs: number;
-    bucket: string;
-}>;
-/**
- * Analyze images using GPT-4o vision model
- * Uses presigned URLs directly with OpenAI Vision API
+ * Analyze images using Google Cloud Vision API (replacing GPT-4o to fix OCR refusal)
+ * Keeps the exact same working structure from the latest push
  */
 export declare function analyzeImagesWithVisionActivity(conversionResult: {
     imagePresignedUrls: string[];
     totalPages: number;
     bucket: string;
 }): Promise<string>;
+/**
+ * Convert a specific page range of a PDF to images for parallel processing
+ * This activity handles a chunk of pages and can be run in parallel with other chunks
+ */
+export declare function convertPDFPageRangeActivity(input: {
+    downloadResult: DownloadFileResult;
+    startPage: number;
+    endPage: number;
+    chunkIndex: number;
+}): Promise<{
+    imagePresignedUrls: string[];
+    pageCount: number;
+    processingTimeMs: number;
+    bucket: string;
+}>;
 export {};
 //# sourceMappingURL=activities.d.ts.map

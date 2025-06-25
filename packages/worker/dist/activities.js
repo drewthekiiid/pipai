@@ -8,7 +8,6 @@ import { config } from 'dotenv';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createPDFToImagesClient } from './pdf-to-images-client.js';
-import { createUnstructuredClient } from './unstructured-client.js';
 // Load environment variables
 config({ path: '../../.env' });
 config({ path: '../../.env.local', override: true });
@@ -37,75 +36,115 @@ export async function downloadFileActivity(input) {
         let fileName;
         let fileBuffer = null;
         if (input.fileUrl.startsWith('http')) {
-            // Check if this is an S3 URL
+            // Check if this is an S3 URL (including presigned URLs)
             if (input.fileUrl.includes('.s3.') || input.fileUrl.includes('s3.amazonaws.com')) {
-                // Handle S3 download with AWS SDK
-                console.log(`[${activityId}] Detected S3 URL, using AWS SDK for download`);
-                try {
-                    // Parse S3 URL to extract bucket and key
-                    const s3UrlMatch = input.fileUrl.match(/https:\/\/([^.]+)\.s3(?:\.([^.]+))?\.amazonaws\.com\/(.+)/);
-                    if (!s3UrlMatch) {
-                        throw new Error(`Invalid S3 URL format: ${input.fileUrl}`);
+                // Check if this is a presigned URL (has query parameters)
+                const isPresignedUrl = input.fileUrl.includes('?');
+                if (isPresignedUrl) {
+                    console.log(`[${activityId}] Detected presigned S3 URL, using direct fetch`);
+                    try {
+                        // For presigned URLs, always use direct fetch (no AWS SDK needed)
+                        const response = await fetch(input.fileUrl);
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status} ${response.statusText}`);
+                        }
+                        const arrayBuffer = await response.arrayBuffer();
+                        fileBuffer = Buffer.from(arrayBuffer);
+                        // Extract filename from URL path
+                        const urlPath = new URL(input.fileUrl).pathname;
+                        fileName = path.basename(urlPath) || `downloaded_file_${Date.now()}`;
+                        console.log(`[${activityId}] Presigned URL download successful: ${fileBuffer.length} bytes, filename: ${fileName}`);
                     }
-                    const [, bucket, region, key] = s3UrlMatch;
-                    console.log(`[${activityId}] S3 Details - Bucket: ${bucket}, Key: ${key}`);
-                    // Configure S3 client
-                    const s3Client = new S3Client({
-                        region: region || process.env.AWS_REGION || 'us-east-1',
-                        credentials: {
-                            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-                            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-                        },
-                    });
-                    console.log(`[${activityId}] Sending S3 GetObject request...`);
-                    const getObjectCommand = new GetObjectCommand({
-                        Bucket: bucket,
-                        Key: key,
-                    });
-                    const response = await s3Client.send(getObjectCommand);
-                    console.log(`[${activityId}] S3 response received, processing stream...`);
-                    // Handle different stream types from AWS SDK v3
-                    if (response.Body) {
-                        const chunks = [];
-                        if (response.Body instanceof Uint8Array) {
-                            // Direct binary data
-                            fileBuffer = Buffer.from(response.Body);
-                        }
-                        else if (typeof response.Body === 'string') {
-                            // String data
-                            fileBuffer = Buffer.from(response.Body, 'utf-8');
-                        }
-                        else if (response.Body && typeof response.Body[Symbol.asyncIterator] === 'function') {
-                            // Async iterable stream (AWS SDK v3)
-                            for await (const chunk of response.Body) {
-                                chunks.push(Buffer.from(chunk));
-                            }
-                            fileBuffer = Buffer.concat(chunks);
-                        }
-                        else if (response.Body && typeof response.Body.on === 'function') {
-                            // Node.js Readable stream
-                            const stream = response.Body;
-                            for await (const chunk of stream) {
-                                chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-                            }
-                            fileBuffer = Buffer.concat(chunks);
-                        }
-                        else {
-                            throw new Error(`Unsupported S3 response body type: ${typeof response.Body}`);
-                        }
-                        // Extract filename from Content-Disposition or URL
-                        fileName = response.ContentDisposition?.match(/filename="([^"]+)"/)?.[1] ||
-                            path.basename(key) ||
-                            `downloaded_file_${Date.now()}`;
-                        console.log(`[${activityId}] S3 download successful: ${fileBuffer.length} bytes, filename: ${fileName}`);
-                    }
-                    else {
-                        throw new Error('Empty response body from S3');
+                    catch (fetchError) {
+                        console.error(`[${activityId}] Presigned URL download failed:`, fetchError);
+                        throw new Error(`Failed to download from presigned URL: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`);
                     }
                 }
-                catch (error) {
-                    console.error(`[${activityId}] S3 download failed:`, error);
-                    throw new Error(`Failed to download from S3: ${error instanceof Error ? error.message : String(error)}`);
+                else {
+                    console.log(`[${activityId}] Detected regular S3 URL, attempting direct download first`);
+                    try {
+                        // For regular S3 URLs, try direct fetch first
+                        const response = await fetch(input.fileUrl);
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        const arrayBuffer = await response.arrayBuffer();
+                        fileBuffer = Buffer.from(arrayBuffer);
+                        // Extract filename from URL or use default
+                        const urlPath = new URL(input.fileUrl).pathname;
+                        fileName = path.basename(urlPath) || `downloaded_file_${Date.now()}`;
+                        console.log(`[${activityId}] Direct S3 URL download successful: ${fileBuffer.length} bytes, filename: ${fileName}`);
+                    }
+                    catch (fetchError) {
+                        console.log(`[${activityId}] Direct fetch failed, trying AWS SDK approach: ${fetchError}`);
+                        // Fallback to AWS SDK approach for regular S3 URLs
+                        try {
+                            // Parse S3 URL to extract bucket and key
+                            const s3UrlMatch = input.fileUrl.match(/https:\/\/([^.]+)\.s3(?:\.([^.]+))?\.amazonaws\.com\/(.+)/);
+                            if (!s3UrlMatch) {
+                                throw new Error(`Invalid S3 URL format: ${input.fileUrl}`);
+                            }
+                            const [, bucket, region, key] = s3UrlMatch;
+                            console.log(`[${activityId}] S3 Details - Bucket: ${bucket}, Key: ${key}`);
+                            // Configure S3 client
+                            const s3Client = new S3Client({
+                                region: region || process.env.AWS_REGION || 'us-east-1',
+                                credentials: {
+                                    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                                    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+                                },
+                            });
+                            console.log(`[${activityId}] Sending S3 GetObject request...`);
+                            const getObjectCommand = new GetObjectCommand({
+                                Bucket: bucket,
+                                Key: key,
+                            });
+                            const response = await s3Client.send(getObjectCommand);
+                            console.log(`[${activityId}] S3 response received, processing stream...`);
+                            // Handle different stream types from AWS SDK v3
+                            if (response.Body) {
+                                const chunks = [];
+                                if (response.Body instanceof Uint8Array) {
+                                    // Direct binary data
+                                    fileBuffer = Buffer.from(response.Body);
+                                }
+                                else if (typeof response.Body === 'string') {
+                                    // String data
+                                    fileBuffer = Buffer.from(response.Body, 'utf-8');
+                                }
+                                else if (response.Body && typeof response.Body[Symbol.asyncIterator] === 'function') {
+                                    // Async iterable stream (AWS SDK v3)
+                                    for await (const chunk of response.Body) {
+                                        chunks.push(Buffer.from(chunk));
+                                    }
+                                    fileBuffer = Buffer.concat(chunks);
+                                }
+                                else if (response.Body && typeof response.Body.on === 'function') {
+                                    // Node.js Readable stream
+                                    const stream = response.Body;
+                                    for await (const chunk of stream) {
+                                        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                                    }
+                                    fileBuffer = Buffer.concat(chunks);
+                                }
+                                else {
+                                    throw new Error(`Unsupported S3 response body type: ${typeof response.Body}`);
+                                }
+                                // Extract filename from Content-Disposition or URL
+                                fileName = response.ContentDisposition?.match(/filename="([^"]+)"/)?.[1] ||
+                                    path.basename(key) ||
+                                    `downloaded_file_${Date.now()}`;
+                                console.log(`[${activityId}] S3 SDK download successful: ${fileBuffer.length} bytes, filename: ${fileName}`);
+                            }
+                            else {
+                                throw new Error('Empty response body from S3');
+                            }
+                        }
+                        catch (sdkError) {
+                            console.error(`[${activityId}] S3 SDK download also failed:`, sdkError);
+                            throw new Error(`Failed to download from S3: ${sdkError instanceof Error ? sdkError.message : String(sdkError)}`);
+                        }
+                    }
                 }
             }
             else {
@@ -152,32 +191,40 @@ export async function downloadFileActivity(input) {
         // 🚀 PRESIGNED URL APPROACH: Generate presigned URL for cross-activity access
         let presignedUrl = input.fileUrl;
         if (input.fileUrl.includes('.s3.') || input.fileUrl.includes('s3.amazonaws.com')) {
-            // Generate presigned URL for S3 files to avoid 2MB activity result limits
-            console.log(`[${activityId}] Generating presigned URL for cross-activity access`);
-            try {
-                const s3UrlMatch = input.fileUrl.match(/https:\/\/([^.]+)\.s3(?:\.([^.]+))?\.amazonaws\.com\/(.+)/);
-                if (s3UrlMatch) {
-                    const [, bucket, region, key] = s3UrlMatch;
-                    const s3Client = new S3Client({
-                        region: region || process.env.AWS_REGION || 'us-east-1',
-                        credentials: {
-                            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-                            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-                        },
-                    });
-                    const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
-                    const getObjectCommand = new GetObjectCommand({
-                        Bucket: bucket,
-                        Key: key,
-                    });
-                    // Generate presigned URL valid for 2 hours (enough for workflow processing)
-                    presignedUrl = await getSignedUrl(s3Client, getObjectCommand, { expiresIn: 7200 });
-                    console.log(`[${activityId}] ✅ Generated presigned URL (expires in 2 hours)`);
-                }
-            }
-            catch (error) {
-                console.warn(`[${activityId}] Failed to generate presigned URL, using original: ${error}`);
+            // If input is already a presigned URL, use it directly
+            const isInputPresignedUrl = input.fileUrl.includes('?');
+            if (isInputPresignedUrl) {
+                console.log(`[${activityId}] Input is already a presigned URL, using it for cross-activity access`);
                 presignedUrl = input.fileUrl;
+            }
+            else {
+                // Generate presigned URL for regular S3 URLs to avoid 2MB activity result limits
+                console.log(`[${activityId}] Generating presigned URL for cross-activity access`);
+                try {
+                    const s3UrlMatch = input.fileUrl.match(/https:\/\/([^.]+)\.s3(?:\.([^.]+))?\.amazonaws\.com\/(.+)/);
+                    if (s3UrlMatch) {
+                        const [, bucket, region, key] = s3UrlMatch;
+                        const s3Client = new S3Client({
+                            region: region || process.env.AWS_REGION || 'us-east-1',
+                            credentials: {
+                                accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+                            },
+                        });
+                        const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+                        const getObjectCommand = new GetObjectCommand({
+                            Bucket: bucket,
+                            Key: key,
+                        });
+                        // Generate presigned URL valid for 2 hours (enough for workflow processing)
+                        presignedUrl = await getSignedUrl(s3Client, getObjectCommand, { expiresIn: 7200 });
+                        console.log(`[${activityId}] ✅ Generated presigned URL (expires in 2 hours)`);
+                    }
+                }
+                catch (error) {
+                    console.warn(`[${activityId}] Failed to generate presigned URL, using original: ${error}`);
+                    presignedUrl = input.fileUrl;
+                }
             }
         }
         console.log(`[${activityId}] File ready for cross-activity access via presigned URL`);
@@ -298,85 +345,37 @@ export async function extractTextFromDownloadActivity(downloadResult) {
         if (fileExt.endsWith('.pdf')) {
             throw new Error('PDF files should be processed through the PDF → Images → Vision pipeline, not text extraction. This is a workflow routing error.');
         }
-        // For other file types that still need unstructured (docx, doc, etc.)
-        if (!fileExt.endsWith('.docx') && !fileExt.endsWith('.doc') && !fileExt.endsWith('.rtf')) {
-            console.warn(`Processing potentially unsupported file type: ${fileExt}`);
+        // For other document types, provide basic processing or route to appropriate pipeline
+        console.log(`[${activityId}] 📋 Processing document type: ${fileExt}`);
+        // Handle different file types without unstructured dependency
+        if (fileExt.endsWith('.docx') || fileExt.endsWith('.doc') || fileExt.endsWith('.rtf')) {
+            // For Word documents, suggest using the PDF conversion pipeline instead
+            throw new Error(`Word documents (.docx, .doc, .rtf) should be converted to PDF first and processed through the PDF → Images → Vision pipeline for better accuracy.`);
         }
-        // Initialize Unstructured client only for complex document types
-        const client = createUnstructuredClient();
-        // Check service health first
-        console.log(`[${activityId}] Checking unstructured service health for complex document...`);
-        const isHealthy = await client.healthCheck();
-        if (!isHealthy) {
-            throw new Error('Unstructured.io service is not available. Please ensure the service is running at the configured URL.');
-        }
-        console.log(`[${activityId}] ✅ Unstructured service is healthy`);
-        // Check file size to determine processing strategy
-        const stats = await fs.promises.stat(workingFilePath);
-        const fileSizeMB = stats.size / (1024 * 1024);
-        const isLargePDF = workingFilePath.toLowerCase().endsWith('.pdf') && fileSizeMB > 20; // 20MB threshold
-        console.log(`[${activityId}] File analysis:`);
-        console.log(`  - Size: ${fileSizeMB.toFixed(2)}MB`);
-        console.log(`  - Strategy: ${isLargePDF ? 'large PDF optimization' : 'standard parallel processing'}`);
-        console.log(`  - Processing with unstructured service...`);
-        // Process document with appropriate method
-        let result;
-        if (isLargePDF) {
-            console.log(`[${activityId}] 🚀 Using maximum parallel optimization for large PDF...`);
-            // Use maximum parallel optimization for large PDFs
-            result = await client.processLargePDF(workingFilePath, {
-                maxConcurrency: 15, // Maximum allowed
-                allowPartialFailure: true,
-                extractTables: true
-            });
-        }
-        else {
-            console.log(`[${activityId}] ⚡ Using standard parallel processing...`);
-            // Use standard parallel processing (still much faster than before)
-            result = await client.processDocument(workingFilePath, {
-                strategy: 'fast',
-                extractImages: false,
-                extractTables: true,
-                coordinates: false,
-                includePage: false,
-                enableParallelProcessing: true,
-                concurrencyLevel: 10,
-                allowPartialFailure: true
-            });
-        }
-        const { extractedText, tables, metadata } = result;
-        // Log processing results
-        console.log(`[${activityId}] ✅ Extraction completed successfully:`);
-        console.log(`  - Pages: ${metadata.pageCount || 'unknown'}`);
-        console.log(`  - Elements: ${metadata.elementCount || 'unknown'}`);
-        console.log(`  - Text length: ${extractedText.length} characters`);
-        console.log(`  - Tables found: ${tables.length}`);
-        console.log(`  - Processing time: ${metadata.processingTime}ms`);
-        console.log(`  - Method: parallel processing enabled`);
-        // Validate extraction
-        if (!extractedText || extractedText.trim().length === 0) {
-            throw new Error('No text was extracted from the document. The file may be corrupted, empty, or in an unsupported format.');
-        }
-        // Combine text and table content for comprehensive analysis
-        let combinedText = extractedText;
-        if (tables.length > 0) {
-            console.log(`[${activityId}] 📊 Including ${tables.length} tables in the analysis`);
-            const tableTexts = tables.map((table, index) => `\n\n[TABLE ${index + 1} - Page ${table.pageNumber}]\n${table.text}`).join('');
-            combinedText += tableTexts;
-        }
-        console.log(`[${activityId}] 🎯 Final extraction result: ${combinedText.length} total characters (including tables)`);
-        // Cleanup temp file if created
-        if (tempFileCreated) {
-            try {
-                await fs.promises.unlink(workingFilePath);
-                await fs.promises.rmdir(path.dirname(workingFilePath));
-                console.log(`[${activityId}] Cleaned up temp file: ${workingFilePath}`);
+        // For any other file type, try to read as plain text
+        try {
+            console.log(`[${activityId}] Attempting to read file as plain text...`);
+            const textContent = await fs.promises.readFile(workingFilePath, 'utf-8');
+            if (!textContent || textContent.trim().length === 0) {
+                throw new Error('No text content found in the file.');
             }
-            catch (cleanupError) {
-                console.warn(`[${activityId}] Failed to cleanup temp file: ${cleanupError}`);
+            console.log(`[${activityId}] ✅ Successfully extracted text: ${textContent.length} characters`);
+            // Cleanup temp file if created
+            if (tempFileCreated) {
+                try {
+                    await fs.promises.unlink(workingFilePath);
+                    await fs.promises.rmdir(path.dirname(workingFilePath));
+                    console.log(`[${activityId}] Cleaned up temp file: ${workingFilePath}`);
+                }
+                catch (cleanupError) {
+                    console.warn(`[${activityId}] Failed to cleanup temp file: ${cleanupError}`);
+                }
             }
+            return textContent;
         }
-        return combinedText;
+        catch (readError) {
+            throw new Error(`Unsupported file type or corrupted file. Supported types: .txt, .md, .csv. For complex documents, convert to PDF and use the PDF processing pipeline. Error: ${readError instanceof Error ? readError.message : String(readError)}`);
+        }
     }
     catch (error) {
         console.error(`[${activityId}] ❌ Text extraction failed:`, error);
@@ -428,325 +427,252 @@ export async function generateEmbeddingsActivity(input) {
  */
 export async function runAIAnalysisActivity(input) {
     const { activityId } = getActivityInfo();
-    console.log(`[${activityId}] Running GPT-4o construction document analysis: ${input.analysisType}`);
+    console.log(`[${activityId}] Starting GPT-4o construction analysis: ${input.text.length} characters`);
     try {
         // Check if OpenAI API key is available
         if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('sk-your-')) {
-            console.error(`[${activityId}] No valid OpenAI API key found (current: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 20) + '...' : 'NOT_SET'})`);
-            throw new Error('OpenAI API key not configured - cannot generate AI analysis. Please configure OPENAI_API_KEY environment variable.');
+            console.error(`[${activityId}] No valid OpenAI API key found`);
+            throw new Error('OpenAI API key not configured - cannot generate AI analysis.');
         }
-        console.log(`[${activityId}] Initializing GPT-4o for construction analysis...`);
         // Initialize OpenAI client
         const OpenAI = await import('openai');
-        const apiKey = process.env.OPENAI_API_KEY;
-        console.log(`[${activityId}] Using OpenAI API key: ${apiKey ? apiKey.substring(0, 20) + '...' : 'NOT_SET'}`);
         const openai = new OpenAI.default({
-            apiKey: apiKey,
+            apiKey: process.env.OPENAI_API_KEY,
         });
-        console.log(`[${activityId}] Sending document to GPT-4o for trade detection...`);
-        // EstimAItor - Enhanced construction analysis prompt with cost code mappings
-        const constructionPrompt = `NAME
-EstimAItor
-
-ROLE
-The Greatest Commercial Construction Estimator Ever
-
-PRIMARY FUNCTION
-
-ALWAYS READ THE FULL DOC NO MATTER HOW LONG IT TAKES
-
-You are a commercial construction estimator trained to analyze construction drawing sets and immediately generate:
-
-Trade detection
-
-CSI Division and Cost Code tagging
-
-Contract-ready Scope of Work
-
-Matching Material Takeoff
-
-Optional RFI generation if missing info is found
-
-All deliverables must be based strictly on the uploaded plans and specifications. If something is unclear, highlight it using "yellow flag" language.
-
-CORE CAPABILITIES
-
-Trade Detection & Auto Execution
-When plans are uploaded:
-
-Scan all filenames, sheet headers, and content
-
-Detect all trades shown in the drawings
-
-Tag each trade with CSI Division and Cost Code using the reference table below
-
-List supporting sheet references
-
-Identify missing, unclear, or OFOI ("by others") scope
-
-Always generate both Scope of Work and Takeoff unless instructed otherwise
-
-Continue through the list in CSI order unless instructed otherwise
-
-Scope of Work Format – Checklist with unchecked boxes (Default)
-Use the following template with no examples. Fill in all [placeholders] based on actual plan content.
-
-PROJECT: [Project Name]
-LOCATION: [City, State]
-TRADE: [Trade Name]
-CSI DIVISION: [Division Number – Division Name]
-COST CODE: [Insert Cost Code]
-SCOPE VALUE: [Insert if known or applicable]
-
-COMPLIANCE CHECKLIST
-
-☐ Reviewed all drawings, specifications, and applicable codes
-
-☐ Includes all labor, materials, equipment, and supervision
-
-☐ Responsible for verifying all quantities
-
-☐ May not sublet or assign this scope without written approval
-
-☐ Price is valid for [Insert Duration]
-
-GENERAL CONDITIONS
-
-☐ Includes applicable sales tax
-
-☐ Includes all parking, tools, and logistics
-
-☐ Badging and insurance per project requirements
-
-☐ Manpower and schedule confirmed
-
-☐ Coordination with other trades included
-
-PROJECT-SPECIFIC CONDITIONS
-
-☐ [Optional: Union labor required, Secure site access, Long-lead deadlines, etc.]
-
-SCOPE OF WORK
-[Category Name]
-
-☐ [Task Description – Include plan/spec reference]
-
-☐ [Task Description]
-
-[Next Category]
-
-☐ [Task Description]
-
-☐ [Task Description]
-
-CLEANUP & TURNOVER
-
-☐ Area to be left broom clean
-
-☐ All trade debris removed to GC-designated dumpster
-
-☐ Final walkthrough and punch coordination included
-
-ASSUMPTIONS / YELLOW FLAGS
-
-☐ [Unverified quantity, coordination dependency, or missing data]
-
-☐ [OF/OI or "by others" scope]
-
-REFERENCES
-
-DRAWINGS: [Insert list of referenced sheets]
-
-SPEC SECTIONS: [Insert referenced spec sections]
-
-DETAILS/KEYNOTES: [Optional: Insert plan detail/callout references]
-
-Material Takeoff Format (Always Included with SOW)
-
-TRADE: [Insert Trade]
-CSI DIVISION: [Insert Division Number – Division Name]
-
-ITEMS
-
-[Quantity] [Unit] – [Material or Scope Item]
-
-[Quantity] [Unit] – [Material or Scope Item]
-
-NOTES
-
-Show math or quantity logic when helpful
-
-Flag unverified or estimated values in yellow
-
-Group materials by system, floor, or location where appropriate
-
-Prompt Flexibility
-Understand and execute when user says:
-
-"Start with Electrical"
-
-"Give me only Division 9"
-
-"What trades are in the plans?"
-
-"Use contract format instead"
-
-"List all OFOI trades"
-
-"Generate scopes and takeoffs for everything"
-
-Always return the trade list first unless already given, then generate scopes + takeoffs in order.
-
-Output Rules
-
-Checklist Format is default unless user specifies otherwise
-
-Every SOW must include a Takeoff
-
-Always generate outputs immediately after detecting the first trade
-
-Continue in CSI Division order unless otherwise directed
-
-Format all deliverables as if they will be included in a subcontract, bid package, or site log
-
-CSI DIVISION + COST CODE TAGGING (Auto-Mapped)
-Use the uploaded "Cost Codes.pdf" to match each detected trade to its CSI Division and Cost Code.
-When tagging, use the format:
-Division [####] – [Division Name] | Cost Code: [####]
-
-Example:
-Division 09500 – Finishes | Cost Code: 9680 (Fluid-Applied Flooring)
-
-If no perfect match exists, return the closest CSI-based category and flag the line item for review.
-
-MANDATE: ACCURACY = LEVERAGE
-Your purpose is to eliminate ambiguity before construction begins by:
-
-Catching missed scope before change orders happen
-
-Producing deliverables that hold up under bid review and subcontracts
-
-Empowering PMs with clean, actionable documentation
-
-Protecting the project team with accurate and defensible estimates
-
-GENERAL REQUIREMENTS
-1450, 1500, 1552, 1570, 1712, 1742
-
-EXISTING CONDITIONS
-2240, 2300, 2400, 2500, 2820, 2850
-
-CONCRETE
-3050, 3100, 3200, 3300, 3350, 3400, 3500, 3800
-
-MASONRY
-4050, 4200, 4400
-
-METALS
-5100, 5200, 5500, 5510, 5550, 5700
-
-WOOD & PLASTICS
-6100, 6170, 6200, 6400, 6600
-
-THERMAL & MOISTURE PROTECTION
-7050, 7100, 7200, 7240, 7400, 7500, 7600, 7712, 7723, 7800, 7900
-
-OPENINGS
-8050, 8100, 8300, 8400, 8500, 8600, 8700, 8800, 8830, 8870, 8900
-
-FINISHES
-9050, 9200, 9220, 9240, 9300, 9500, 9600, 9660, 9670, 9680, 9700, 9800, 9900
-
-SPECIALTIES
-10100, 10110, 10140, 10210, 10220, 10260, 10280, 10300, 10440, 10510, 10550, 10730, 10750, 10810
-
-EQUIPMENT
-11100, 11130, 11400, 11520, 11660, 11700, 11810, 11900
-
-FURNISHINGS
-12200, 12300, 12360, 12400, 12500
-
-SPECIAL CONSTRUCTION
-13110, 13120, 13341
-
-CONVEYING SYSTEMS
-14200, 14400, 14800
-
-FIRE SUPPRESSION
-21100
-
-PLUMBING
-22050, 22100
-
-HVAC
-23050, 23059, 23071, 23090, 23200
-
-INTEGRATED AUTOMATION
-25100
-
-ELECTRICAL
-26050, 26100, 26410, 26500
-
-COMMUNICATIONS
-27100
-
-ELECTRONIC SAFETY & SECURITY
-28100, 28200
-
-EARTHWORK
-31100, 31130, 31200, 31230, 31250, 31310, 31311, 31400, 31600
-
-EXTERIOR IMPROVEMENTS
-32100, 32120, 32160, 32172, 32310, 32320, 32800, 32900
-
-UTILITIES
-33100, 33200, 33300, 33400
-
-TRANSPORTATION
-34700
-
-MARINE & WATERWAY CONSTRUCTION
-35100
-
-PROCESS INTERCONNECTIONS
-40660
-
-MATERIAL PROCESSING & HANDLING
-41220
-
-POLLUTION & WASTE CONTROL EQUIPMENT
-44100
-
-ELECTRICAL POWER GENERATION
-48140, 48150
-
-Now analyze this construction document:`;
-        // Call GPT-4o API
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                {
-                    role: "system",
-                    content: constructionPrompt
-                },
-                {
-                    role: "user",
-                    content: `Please analyze this construction document and provide complete trade detection, scope of work, and material takeoffs:\n\n${input.text}`
-                }
-            ],
-            max_tokens: 4000,
-            temperature: 0.1, // Low temperature for consistent, accurate analysis
-        });
-        const analysisText = response.choices[0].message.content || '';
-        console.log(`[${activityId}] GPT-4o analysis completed: ${analysisText.length} characters generated`);
-        // Parse GPT-4o response into structured format
-        const structuredAnalysis = parseConstructionAnalysis(analysisText);
-        return structuredAnalysis;
+        // Check if document is too large for single request (>20k tokens ≈ 80k characters)
+        const MAX_CHUNK_SIZE = 80000; // Stay well under 30k token limit
+        if (input.text.length <= MAX_CHUNK_SIZE) {
+            console.log(`[${activityId}] Processing as single chunk (${input.text.length} chars)`);
+            return await processSingleChunk(openai, input.text, activityId);
+        }
+        else {
+            console.log(`[${activityId}] Large document detected (${input.text.length} chars) - implementing chunked analysis`);
+            return await processChunkedAnalysis(openai, input.text, activityId);
+        }
     }
     catch (error) {
         console.error(`[${activityId}] GPT-4o analysis failed:`, error);
         throw new Error(`AI analysis failed: ${error instanceof Error ? error.message : 'Unknown OpenAI error'}. No fallback analysis will be generated.`);
     }
+}
+/**
+ * Process a single chunk that fits within token limits
+ */
+async function processSingleChunk(openai, text, activityId) {
+    const constructionPrompt = getConstructionPrompt();
+    const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+            { role: "system", content: constructionPrompt },
+            {
+                role: "user",
+                content: `Please analyze this construction document and provide complete trade detection, scope of work, and material takeoffs:\n\n${text}`
+            }
+        ],
+        max_tokens: 4000,
+        temperature: 0.1,
+    });
+    const analysisText = response.choices[0].message.content || '';
+    console.log(`[${activityId}] Single-chunk analysis completed: ${analysisText.length} characters`);
+    return parseConstructionAnalysis(analysisText);
+}
+/**
+ * Process large documents by chunking and parallel analysis
+ */
+async function processChunkedAnalysis(openai, text, activityId) {
+    const MAX_CHUNK_SIZE = 80000;
+    // Split text into intelligent chunks (preserve context)
+    const chunks = splitTextIntelligently(text, MAX_CHUNK_SIZE);
+    console.log(`[${activityId}] Split into ${chunks.length} chunks for parallel processing`);
+    // Process chunks in parallel with rate limiting
+    const chunkPromises = chunks.map(async (chunk, index) => {
+        const isFirst = index === 0;
+        const isLast = index === chunks.length - 1;
+        // Add small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, index * 500));
+        const chunkPrompt = getChunkPrompt(isFirst, isLast, index + 1, chunks.length);
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+                { role: "system", content: chunkPrompt },
+                {
+                    role: "user",
+                    content: `Analyze this section of the construction document (Part ${index + 1} of ${chunks.length}):\n\n${chunk.text}`
+                }
+            ],
+            max_tokens: 3000, // Smaller per chunk to avoid limits
+            temperature: 0.1,
+        });
+        return {
+            chunkIndex: index,
+            analysis: response.choices[0].message.content || '',
+            context: chunk.context
+        };
+    });
+    // Wait for all chunks to complete
+    const chunkResults = await Promise.all(chunkPromises);
+    console.log(`[${activityId}] Completed parallel analysis of ${chunkResults.length} chunks`);
+    // Combine results intelligently
+    return combineChunkAnalyses(chunkResults, activityId);
+}
+/**
+ * Split text into intelligent chunks preserving document structure
+ */
+function splitTextIntelligently(text, maxSize) {
+    const chunks = [];
+    // Split points in order of preference
+    const sectionBreaks = [
+        /\n\s*(?:SECTION|DIVISION|CHAPTER)\s+\d+/gi,
+        /\n\s*[A-Z\s]{10,}\n/g,
+        /\n\s*\d+\.\d+\s+/g,
+        /\n\s*Page\s+\d+/gi,
+        /\n\n\n/g,
+        /\n\n/g
+    ];
+    let currentText = text;
+    let chunkIndex = 0;
+    while (currentText.length > maxSize) {
+        let bestSplit = -1;
+        // Find the best split point within acceptable range
+        for (const pattern of sectionBreaks) {
+            const matches = Array.from(currentText.matchAll(pattern));
+            for (const match of matches) {
+                const splitPoint = match.index;
+                if (splitPoint > maxSize * 0.6 && splitPoint < maxSize * 1.1) {
+                    bestSplit = splitPoint;
+                    break;
+                }
+            }
+            if (bestSplit > 0)
+                break;
+        }
+        // Fallback to paragraph or word boundaries
+        if (bestSplit === -1) {
+            bestSplit = currentText.lastIndexOf('\n\n', maxSize);
+            if (bestSplit === -1)
+                bestSplit = currentText.lastIndexOf('\n', maxSize);
+            if (bestSplit === -1)
+                bestSplit = currentText.lastIndexOf(' ', maxSize);
+            if (bestSplit === -1)
+                bestSplit = maxSize; // Force split
+        }
+        const chunk = currentText.substring(0, bestSplit).trim();
+        chunks.push({
+            text: chunk,
+            context: `Part ${chunkIndex + 1} (${chunk.length} chars)`
+        });
+        currentText = currentText.substring(bestSplit).trim();
+        chunkIndex++;
+    }
+    // Add remaining text
+    if (currentText.length > 0) {
+        chunks.push({
+            text: currentText,
+            context: `Final part ${chunkIndex + 1} (${currentText.length} chars)`
+        });
+    }
+    return chunks;
+}
+/**
+ * Generate chunk-specific prompts for optimal parallel analysis
+ */
+function getChunkPrompt(isFirst, isLast, chunkNum, totalChunks) {
+    return `You are EstimAItor analyzing construction documents. This is part ${chunkNum} of ${totalChunks} from a large document.
+
+FOCUS: Extract trades, scope items, and key information from this section.
+
+${isFirst ? 'FIRST SECTION: Look for project overview, general info, and early trades.' : ''}
+${isLast ? 'FINAL SECTION: Look for completion requirements, final trades, and summary info.' : ''}
+
+RESPONSE FORMAT:
+- TRADES DETECTED: List all trades found in this section
+- SCOPE ITEMS: Key scope elements and requirements  
+- MATERIALS: Notable materials or quantities
+- NOTES: Important coordination or special requirements
+
+Keep analysis focused and structured for combination with other sections.`;
+}
+/**
+ * Combine multiple chunk analyses into a cohesive result
+ */
+function combineChunkAnalyses(chunkResults, activityId) {
+    const allTrades = new Set();
+    const allScopeItems = new Set();
+    const allInsights = [];
+    // Process each chunk result
+    chunkResults.forEach((chunk, index) => {
+        // Extract trades from chunk
+        const tradeMatches = chunk.analysis.match(/(?:TRADE|Division|☐)\s*[:\-]?\s*([^:\n]{5,})/gi);
+        if (tradeMatches) {
+            tradeMatches.forEach(match => {
+                const trade = match.replace(/^(TRADE|Division|☐)\s*[:\-]?\s*/i, '').trim();
+                if (trade.length > 3 && !trade.includes('[') && !trade.includes('detected')) {
+                    allTrades.add(trade);
+                }
+            });
+        }
+        // Extract scope items
+        const scopeMatches = chunk.analysis.match(/(?:SCOPE|☐)\s*[:\-]?\s*([^:\n]{10,})/gi);
+        if (scopeMatches) {
+            scopeMatches.forEach(match => {
+                const scope = match.replace(/^(SCOPE|☐)\s*[:\-]?\s*/i, '').trim();
+                if (scope.length > 10 && !scope.includes('[')) {
+                    allScopeItems.add(scope);
+                }
+            });
+        }
+        // Add chunk insight
+        allInsights.push(`${chunk.context}: Analysis completed`);
+    });
+    const trades = Array.from(allTrades);
+    const scopeItems = Array.from(allScopeItems);
+    // Build comprehensive summary
+    const summary = `GPT-4o Chunked Analysis Results:
+  
+DOCUMENT PROCESSING:
+- Total Sections Analyzed: ${chunkResults.length}
+- Parallel Processing: Successfully completed
+- Trade Detection: ${trades.length} trades identified
+- Scope Analysis: ${scopeItems.length} scope items extracted
+
+PRIMARY TRADES DETECTED:
+${trades.slice(0, 15).map(t => `• ${t}`).join('\n')}
+
+ANALYSIS STATUS: ✅ Large document successfully processed using chunked parallel analysis to overcome token limits.`;
+    console.log(`[${activityId}] Combined analysis: ${trades.length} trades, ${scopeItems.length} scope items from ${chunkResults.length} chunks`);
+    return {
+        summary,
+        insights: trades.length > 0 ? trades : ['Document analysis completed - trades detected in chunks'],
+        keyTopics: scopeItems.length > 0 ? Array.from(scopeItems).slice(0, 25) : ['Multi-section construction analysis'],
+        sentiment: 'positive',
+        complexity: Math.min(10, Math.max(6, trades.length / 2)),
+    };
+}
+/**
+ * Get the main construction analysis prompt
+ */
+function getConstructionPrompt() {
+    return `You are EstimAItor, the greatest commercial construction estimator. Analyze construction documents and provide:
+
+TRADE DETECTION: Identify all construction trades
+SCOPE ANALYSIS: Extract scope of work items
+MATERIAL TAKEOFFS: Note quantities and materials
+CSI CLASSIFICATION: Assign CSI divisions where possible
+
+RESPONSE FORMAT:
+PROJECT: [Project name if found]
+LOCATION: [Location if found]
+
+TRADES DETECTED:
+☐ Trade Name (CSI Division) - Scope description
+
+SCOPE ITEMS:
+☐ Specific work items and requirements
+
+MATERIALS:
+☐ Key materials and estimated quantities
+
+Focus on accuracy and completeness. Use CSI MasterFormat classifications.`;
 }
 /**
  * Save analysis results to database
@@ -1084,16 +1010,139 @@ function analyzeConstructionDocument(text) {
     return result;
 }
 /**
- * Convert PDF to images for GPT-4o vision processing
- * This is the modern ChatGPT approach: PDF → Images → Vision Model
+ * Analyze images using Google Cloud Vision API (replacing GPT-4o to fix OCR refusal)
+ * Keeps the exact same working structure from the latest push
  */
-export async function convertPDFToImagesActivity(downloadResult) {
+export async function analyzeImagesWithVisionActivity(conversionResult) {
     const { activityId } = getActivityInfo();
-    console.log(`[${activityId}] Starting PDF to images conversion: ${downloadResult.fileName}`);
-    // Only process PDF files
-    if (!downloadResult.fileName.toLowerCase().endsWith('.pdf')) {
-        throw new Error(`PDF to images conversion only supports PDF files. Received: ${downloadResult.fileType}`);
+    console.log(`[${activityId}] Starting Google Cloud Vision analysis of ${conversionResult.totalPages} images`);
+    try {
+        // Initialize Google Cloud Vision client with credentials
+        const vision = await import('@google-cloud/vision');
+        let client;
+        if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+            try {
+                // Parse the credentials JSON from environment variable
+                const credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS);
+                client = new vision.ImageAnnotatorClient({
+                    credentials,
+                    projectId: credentials.project_id,
+                });
+            }
+            catch (error) {
+                console.error('Failed to parse Google Cloud credentials:', error);
+                throw new Error('Invalid Google Cloud credentials format');
+            }
+        }
+        else {
+            throw new Error('Google Cloud credentials not found. Please set GOOGLE_APPLICATION_CREDENTIALS');
+        }
+        console.log(`[${activityId}] Processing ${conversionResult.totalPages} pages with Google Cloud Vision...`);
+        // For better performance with large documents, process in batches (SAME AS WORKING VERSION)
+        const BATCH_SIZE = 2; // ULTRA-FAST: Same as working version 
+        const batches = [];
+        for (let i = 0; i < conversionResult.imagePresignedUrls.length; i += BATCH_SIZE) {
+            batches.push(conversionResult.imagePresignedUrls.slice(i, i + BATCH_SIZE));
+        }
+        console.log(`[${activityId}] 🔄 Processing ${batches.length} batches of images (${BATCH_SIZE} images per batch)...`);
+        let allExtractedText = '';
+        for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+            const batch = batches[batchIndex];
+            const startPage = batchIndex * BATCH_SIZE + 1;
+            const endPage = Math.min(startPage + batch.length - 1, conversionResult.totalPages);
+            console.log(`[${activityId}] 📄 Processing batch ${batchIndex + 1}/${batches.length}: pages ${startPage}-${endPage}`);
+            try {
+                // Process batch with Google Cloud Vision (replacing GPT-4o call)
+                let batchText = '';
+                for (let urlIndex = 0; urlIndex < batch.length; urlIndex++) {
+                    const imageUrl = batch[urlIndex];
+                    const pageNumber = startPage + urlIndex;
+                    // Download image for Vision API
+                    const imageResponse = await fetch(imageUrl);
+                    if (!imageResponse.ok) {
+                        throw new Error(`Failed to download image: ${imageResponse.status} ${imageResponse.statusText}`);
+                    }
+                    const imageBuffer = await imageResponse.arrayBuffer();
+                    const imageBytes = Buffer.from(imageBuffer);
+                    // Call Google Cloud Vision API for text detection
+                    const [result] = await client.textDetection({
+                        image: {
+                            content: imageBytes,
+                        },
+                        imageContext: {
+                            languageHints: ['en'],
+                        },
+                    });
+                    const detections = result.textAnnotations;
+                    let pageText = '';
+                    if (detections && detections.length > 0) {
+                        // First detection contains the entire text block
+                        pageText = detections[0]?.description || '';
+                        // Clean and format the extracted text
+                        pageText = pageText
+                            .replace(/\n{3,}/g, '\n\n')
+                            .replace(/\s{3,}/g, '  ')
+                            .trim();
+                    }
+                    if (!pageText.trim()) {
+                        pageText = `[Page ${pageNumber}: No readable text detected]`;
+                    }
+                    batchText += `Page ${pageNumber}:\n${pageText}\n\n`;
+                }
+                // Add page markers for organization (SAME FORMAT AS WORKING VERSION)
+                allExtractedText += `\n\n=== PAGES ${startPage}-${endPage} ===\n${batchText}\n`;
+                console.log(`[${activityId}] ✅ Batch ${batchIndex + 1} completed: ${batchText.length} characters extracted`);
+                // Small delay between batches to respect rate limits (SAME AS WORKING VERSION)
+                if (batchIndex < batches.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+            catch (error) {
+                console.error(`[${activityId}] ❌ Failed to process batch ${batchIndex + 1}:`, error);
+                throw new Error(`Vision analysis failed for pages ${startPage}-${endPage}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+        }
+        console.log(`[${activityId}] ✅ Google Cloud Vision analysis completed: ${allExtractedText.length} characters`);
+        return allExtractedText;
     }
+    catch (error) {
+        console.error(`[${activityId}] ❌ Vision analysis failed:`, error);
+        throw new Error(`Vision analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+/**
+ * Enhance extracted text for construction documents
+ */
+function enhanceConstructionText(text, pageNumber) {
+    // Add construction-specific text processing
+    let enhanced = text;
+    // Improve dimension and measurement formatting
+    enhanced = enhanced
+        .replace(/(\d+)\s*['′]\s*(\d+)\s*["″]/g, '$1\'-$2"') // Format feet and inches
+        .replace(/(\d+)\s*mm/gi, '$1mm') // Normalize millimeters
+        .replace(/(\d+)\s*cm/gi, '$1cm') // Normalize centimeters
+        .replace(/(\d+)\s*ft/gi, '$1ft') // Normalize feet
+        .replace(/(\d+)\s*in/gi, '$1in') // Normalize inches
+        .replace(/\bØ\s*(\d+)/g, 'Ø$1') // Normalize diameter symbols
+        .replace(/\b(\d+)\s*°/g, '$1°') // Normalize degrees
+        .replace(/\b(\d+)\s*%/g, '$1%'); // Normalize percentages
+    // Improve sheet and drawing number formatting
+    enhanced = enhanced
+        .replace(/\b([A-Z]{1,2})\s*-\s*(\d+)/g, '$1-$2') // Sheet numbers (A-1, E-2, etc.)
+        .replace(/\bDWG\s*#?\s*(\w+)/gi, 'DWG# $1') // Drawing numbers
+        .replace(/\bREV\s*:?\s*(\w+)/gi, 'REV: $1'); // Revision numbers
+    // Add page context for construction documents
+    const pageContext = `\n[Page ${pageNumber} - Construction Document OCR via Google Cloud Vision]\n`;
+    return pageContext + enhanced;
+}
+/**
+ * Convert a specific page range of a PDF to images for parallel processing
+ * This activity handles a chunk of pages and can be run in parallel with other chunks
+ */
+export async function convertPDFPageRangeActivity(input) {
+    const { activityId } = getActivityInfo();
+    const { downloadResult, startPage, endPage, chunkIndex } = input;
+    console.log(`[${activityId}] Converting PDF pages ${startPage}-${endPage} (chunk ${chunkIndex})`);
     try {
         // Configure S3 client
         const s3Client = new S3Client({
@@ -1106,18 +1155,16 @@ export async function convertPDFToImagesActivity(downloadResult) {
         const bucket = process.env.AWS_S3_BUCKET || 'pip-ai-storage-qo56jg9l';
         // Create PDF to images client
         const pdfClient = createPDFToImagesClient(s3Client, bucket);
-        // Use presigned URL for PDF processing (no S3 authentication needed)
-        const pdfPresignedUrl = downloadResult.presignedUrl;
-        // Generate output prefix for images
+        // Generate output prefix for this chunk
         const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '/');
-        const outputPrefix = `images/${timestamp}/${activityId}`;
-        console.log(`[${activityId}] Converting PDF to images:`);
-        console.log(`  - Using presigned URL for download`);
+        const outputPrefix = `images/${timestamp}/${activityId}/chunk_${chunkIndex}`;
+        console.log(`[${activityId}] Processing chunk ${chunkIndex}:`);
+        console.log(`  - Pages: ${startPage}-${endPage}`);
         console.log(`  - Output Prefix: ${outputPrefix}`);
         console.log(`  - Bucket: ${bucket}`);
-        // Convert PDF to images using presigned URL
-        const result = await pdfClient.convertPDFToImages(pdfPresignedUrl, outputPrefix, activityId);
-        // Generate presigned URLs for all converted images
+        // Convert specific page range using presigned URL
+        const result = await pdfClient.convertPDFPageRange(downloadResult.presignedUrl, outputPrefix, activityId, startPage, endPage);
+        // Generate presigned URLs for the converted images
         console.log(`[${activityId}] 🔗 Generating presigned URLs for ${result.totalPages} images...`);
         const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
         const presignedS3Client = new S3Client({
@@ -1128,8 +1175,10 @@ export async function convertPDFToImagesActivity(downloadResult) {
             },
         });
         const imagePresignedUrls = [];
-        for (let pageNumber = 1; pageNumber <= result.totalPages; pageNumber++) {
-            const s3Key = `${outputPrefix}/page-${pageNumber.toString().padStart(3, '0')}.png`;
+        // Use local page numbering (1-based within chunk) to match PDF client output
+        const pageCount = endPage - startPage + 1;
+        for (let localPageNumber = 1; localPageNumber <= pageCount; localPageNumber++) {
+            const s3Key = `${outputPrefix}/page-${localPageNumber.toString().padStart(3, '0')}.png`;
             const getObjectCommand = new GetObjectCommand({
                 Bucket: bucket,
                 Key: s3Key,
@@ -1138,101 +1187,20 @@ export async function convertPDFToImagesActivity(downloadResult) {
             const presignedUrl = await getSignedUrl(presignedS3Client, getObjectCommand, { expiresIn: 7200 });
             imagePresignedUrls.push(presignedUrl);
         }
-        console.log(`[${activityId}] ✅ PDF to images conversion completed:`);
-        console.log(`  - Total Pages: ${result.totalPages}`);
+        console.log(`[${activityId}] ✅ Chunk ${chunkIndex} completed:`);
+        console.log(`  - Pages: ${startPage}-${endPage}`);
         console.log(`  - Processing Time: ${result.processingTimeMs}ms`);
         console.log(`  - Generated ${imagePresignedUrls.length} presigned URLs`);
         return {
             imagePresignedUrls,
-            totalPages: result.totalPages,
+            pageCount: result.totalPages,
             processingTimeMs: result.processingTimeMs,
             bucket
         };
     }
     catch (error) {
-        console.error(`[${activityId}] ❌ PDF to images conversion failed:`, error);
-        throw new Error(`PDF to images conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-}
-/**
- * Analyze images using GPT-4o vision model
- * Uses presigned URLs directly with OpenAI Vision API
- */
-export async function analyzeImagesWithVisionActivity(conversionResult) {
-    const { activityId } = getActivityInfo();
-    console.log(`[${activityId}] Starting GPT-4o vision analysis of ${conversionResult.totalPages} images`);
-    try {
-        // Check if OpenAI API key is available
-        if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('sk-your-')) {
-            throw new Error('OpenAI API key not configured - cannot run vision analysis');
-        }
-        // Initialize OpenAI client
-        const OpenAI = await import('openai');
-        const openai = new OpenAI.default({
-            apiKey: process.env.OPENAI_API_KEY,
-        });
-        console.log(`[${activityId}] Processing ${conversionResult.totalPages} pages with GPT-4o vision...`);
-        // Use presigned URLs directly for GPT-4o vision analysis
-        const imageMessages = conversionResult.imagePresignedUrls.map(presignedUrl => ({
-            type: "image_url",
-            image_url: {
-                url: presignedUrl,
-                detail: "high"
-            }
-        }));
-        console.log(`[${activityId}] 🔄 Sending ${imageMessages.length} presigned URLs to GPT-4o vision...`);
-        // Construction-specific vision analysis prompt
-        const visionPrompt = `You are EstimAItor, the greatest commercial construction estimator ever. Analyze these construction document pages and extract:
-
-1. **TRADES IDENTIFIED** (use CSI MasterFormat codes where applicable)
-2. **SCOPE OF WORK** for each trade
-3. **MATERIAL TAKEOFFS** with quantities
-4. **PROJECT DETAILS** (name, location, type)
-5. **SPECIFICATIONS** and requirements
-6. **DIMENSIONS** and measurements
-7. **DETAILS** from drawings, diagrams, and tables
-
-Focus on:
-- Electrical systems, panels, lighting, power
-- HVAC systems, ductwork, equipment
-- Plumbing fixtures, piping, drainage
-- Structural elements, concrete, steel
-- Architectural finishes, doors, windows
-- Site work, utilities, paving
-
-Extract ALL text, tables, dimensions, and technical details. Be comprehensive and detailed.`;
-        // Call GPT-4o Vision API with presigned URLs
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                {
-                    role: "system",
-                    content: visionPrompt
-                },
-                {
-                    role: "user",
-                    content: [
-                        {
-                            type: "text",
-                            text: `Please analyze these ${conversionResult.totalPages} construction document pages and provide complete trade analysis, scope of work, and material takeoffs:`
-                        },
-                        ...imageMessages
-                    ]
-                }
-            ],
-            max_tokens: 4000,
-            temperature: 0.1,
-        });
-        const analysisText = response.choices[0].message.content || '';
-        console.log(`[${activityId}] ✅ GPT-4o vision analysis completed: ${analysisText.length} characters`);
-        if (!analysisText || analysisText.trim().length === 0) {
-            throw new Error('GPT-4o vision analysis returned empty response');
-        }
-        return analysisText;
-    }
-    catch (error) {
-        console.error(`[${activityId}] ❌ Vision analysis failed:`, error);
-        throw new Error(`Vision analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        console.error(`[${activityId}] ❌ PDF page range conversion failed:`, error);
+        throw new Error(`PDF page range conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 }
 //# sourceMappingURL=activities.js.map

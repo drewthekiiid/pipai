@@ -7,7 +7,8 @@
 // Configure route as dynamic for API functionality  
 export const dynamic = 'force-dynamic';
 
-import { HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Connection, Client as TemporalClient } from '@temporalio/client';
 import { Redis } from '@upstash/redis';
 import { NextRequest, NextResponse } from 'next/server';
@@ -162,9 +163,19 @@ async function uploadToS3(file: File, key: string): Promise<string> {
 
   await s3Client.send(uploadCommand);
   
-  const fileUrl = `https://${config.aws.bucketName}.s3.${config.aws.region}.amazonaws.com/${key}`;
-  console.log('✅ S3 upload successful:', fileUrl);
-  return fileUrl;
+  // Generate presigned URL for workflow access (valid for 2 hours)
+  console.log('🔗 Generating presigned URL for workflow access...');
+  const getObjectCommand = new GetObjectCommand({
+    Bucket: config.aws.bucketName,
+    Key: key,
+  });
+  
+  const presignedUrl = await getSignedUrl(s3Client, getObjectCommand, { 
+    expiresIn: 7200 // 2 hours - enough for workflow processing
+  });
+  
+  console.log('✅ S3 upload successful with presigned URL generated');
+  return presignedUrl;
 }
 
 async function startAnalysisWorkflow(fileUrl: string, fileName: string, userId: string, s3Key: string): Promise<string> {

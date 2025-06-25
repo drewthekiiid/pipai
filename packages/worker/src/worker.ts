@@ -103,11 +103,11 @@ async function createWorker(connection: NativeConnection): Promise<Worker> {
       taskQueue: process.env.TEMPORAL_TASK_QUEUE || 'pip-ai-task-queue',
       workflowsPath,
       activities,
-      // HIGH PERFORMANCE settings for large construction document processing
-      maxConcurrentActivityTaskExecutions: 30,  // EXTREME: Increased from 20 to 30
-      maxConcurrentWorkflowTaskExecutions: 15,  // Increased from 10 to 15
+      // AUTO-SCALING PERFORMANCE: Dynamically handles any document size
+      maxConcurrentActivityTaskExecutions: 120, // AUTO-SCALE: Handle up to 120 activities for massive docs
+      maxConcurrentWorkflowTaskExecutions: 30,  // Increased to 30 for multiple large documents
       // Polling settings for faster task pickup
-      maxConcurrentActivityTaskPolls: 15,       // EXTREME: Increased from 10 to 15
+      maxConcurrentActivityTaskPolls: 30,       // AUTO-SCALE: Increased to 30 for faster pickup
       maxConcurrentWorkflowTaskPolls: 8,        // Increased from 5 to 8
       // Heartbeat settings for long-running activities
       maxHeartbeatThrottleInterval: '30s',
@@ -117,11 +117,11 @@ async function createWorker(connection: NativeConnection): Promise<Worker> {
       debugMode: false
     });
 
-    console.log('✅ Worker created successfully - HIGH PERFORMANCE MODE');
+    console.log('✅ Worker created successfully - AUTO-SCALING MODE');
     console.log(`   Task Queue: ${process.env.TEMPORAL_TASK_QUEUE || 'pip-ai-task-queue'}`);
-    console.log(`   Max Concurrent Activities: 30 (PARALLEL PROCESSING)`);
-    console.log(`   Max Concurrent Workflows: 15`);
-    console.log(`   Activity Polls: 15 | Workflow Polls: 8`);
+    console.log(`   Max Concurrent Activities: 120 (AUTO-SCALING FOR ANY DOCUMENT SIZE)`);
+    console.log(`   Max Concurrent Workflows: 30`);
+    console.log(`   Activity Polls: 30 | Workflow Polls: 8`);
     
     return worker;
 

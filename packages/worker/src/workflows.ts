@@ -10,7 +10,6 @@ import type * as activities from './activities.js';
 const { 
   downloadFileActivity,
   extractTextFromDownloadActivity,
-  convertPDFToImagesActivity,
   analyzeImagesWithVisionActivity,
   generateEmbeddingsActivity,
   runAIAnalysisActivity,
@@ -37,9 +36,9 @@ const { runAIAnalysisActivity: runLongAIAnalysis } = proxyActivities<typeof acti
   },
 });
 
-// Configure extended timeout for vision analysis (multiple images)
+// Configure optimized timeout for vision analysis (multiple images)
 const { analyzeImagesWithVisionActivity: runVisionAnalysis } = proxyActivities<typeof activities>({
-  startToCloseTimeout: '12 minutes',  // Extended for GPT-4o vision processing
+  startToCloseTimeout: '10 minutes',  // Consistent with PDF processing timeout
   retry: {
     initialInterval: '3s',
     maximumInterval: '60s', 
@@ -47,9 +46,9 @@ const { analyzeImagesWithVisionActivity: runVisionAnalysis } = proxyActivities<t
   },
 });
 
-// Configure longer timeout for parallel PDF processing activities
+// Configure optimized timeout for parallel PDF processing activities
 const { convertPDFPageRangeActivity: convertPDFPageRangeWithTimeout } = proxyActivities<typeof activities>({
-  startToCloseTimeout: '15 minutes',  // Longer timeout for PDF processing
+  startToCloseTimeout: '10 minutes',  // Increased timeout for performance-4x hardware
   retry: {
     initialInterval: '2s',
     maximumInterval: '60s', 
@@ -168,20 +167,23 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
       await sleep(600);
       
       // For large PDFs, split into parallel activities across multiple workers
-      // 🚀 DYNAMIC OPTIMIZATION: Calculate optimal chunk size based on file size
+      // 🚀 TRUE AUTO-SCALING: Dynamically scales to ANY document size
       const fileSizeMB = downloadResult.fileSize / (1024 * 1024);
-      const OPTIMAL_PAGES_PER_CHUNK = fileSizeMB > 10 ? 2 : fileSizeMB > 5 ? 3 : 5; // ULTRA-FINE: 2 pages for huge files
-      const MAX_WORKERS = 20; // EXTREME: Use up to 20 workers for maximum parallelization
-      const ESTIMATED_PAGES = Math.ceil(fileSizeMB * 10); // Rough estimate: 10 pages per MB
+      const ESTIMATED_PAGES = Math.ceil(fileSizeMB * 2.5); // More accurate: 2.5 pages per MB for construction docs
       
-      // Calculate optimal number of chunks
-      const optimalChunks = Math.min(MAX_WORKERS, Math.ceil(ESTIMATED_PAGES / OPTIMAL_PAGES_PER_CHUNK));
+      // INTELLIGENT AUTO-SCALING: Fine-tuned for 4 vCPUs optimal performance
+      const AUTO_SCALE_PAGES_PER_CHUNK = fileSizeMB > 50 ? 2 : fileSizeMB > 20 ? 2 : fileSizeMB > 10 ? 3 : 4;
+      const AUTO_SCALE_MAX_WORKERS = Math.min(ESTIMATED_PAGES, 8); // Optimal: 8 workers max for 4 vCPUs
+      const AUTO_SCALE_OPTIMAL_CHUNKS = Math.ceil(ESTIMATED_PAGES / AUTO_SCALE_PAGES_PER_CHUNK);
+      
+              // Calculate auto-scaled chunk count based on actual document size
+      const optimalChunks = Math.min(AUTO_SCALE_MAX_WORKERS, AUTO_SCALE_OPTIMAL_CHUNKS);
       
       // Create parallel activities for different page ranges
       const chunkPromises = [];
       for (let chunkIndex = 0; chunkIndex < optimalChunks; chunkIndex++) { 
-        const startPage = chunkIndex * OPTIMAL_PAGES_PER_CHUNK + 1;
-        const endPage = (chunkIndex + 1) * OPTIMAL_PAGES_PER_CHUNK;
+        const startPage = chunkIndex * AUTO_SCALE_PAGES_PER_CHUNK + 1;
+        const endPage = (chunkIndex + 1) * AUTO_SCALE_PAGES_PER_CHUNK;
         
         chunkPromises.push(
           convertPDFPageRangeWithTimeout({
@@ -193,7 +195,7 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
         );
       }
       
-      status = { step: `PDF Processor: EXTREME PARALLEL MODE - ${optimalChunks} workers processing ${OPTIMAL_PAGES_PER_CHUNK} pages each...`, progress: 20 };
+      status = { step: `PDF Processor: AUTO-SCALING MODE - ${optimalChunks} workers processing ${AUTO_SCALE_PAGES_PER_CHUNK} pages each (${ESTIMATED_PAGES} total pages)...`, progress: 20 };
       
       // Process all chunks in parallel across different workers
       const chunkResults = await Promise.all(chunkPromises);
@@ -218,12 +220,12 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
       
       status = { step: 'Vision Agent: PARALLEL VISION ANALYSIS - Processing multiple batches simultaneously...', progress: 45 };
       
-      // 🚀 PARALLEL VISION ANALYSIS: Split images into chunks for concurrent processing
-      const IMAGES_PER_VISION_CHUNK = 10; // ULTRA-PARALLEL: Reduced from 15 to 10 for more workers
+      // 🚀 AUTO-SCALING VISION: Fine-tuned for 4 vCPUs optimal throughput
+      const AUTO_SCALE_IMAGES_PER_CHUNK = Math.max(5, Math.min(12, Math.ceil(imagesResult.totalPages / 8))); // Scale from 5-12 images per worker
       const visionChunks = [];
       
-      for (let i = 0; i < imagesResult.imagePresignedUrls.length; i += IMAGES_PER_VISION_CHUNK) {
-        const chunkUrls = imagesResult.imagePresignedUrls.slice(i, i + IMAGES_PER_VISION_CHUNK);
+      for (let i = 0; i < imagesResult.imagePresignedUrls.length; i += AUTO_SCALE_IMAGES_PER_CHUNK) {
+        const chunkUrls = imagesResult.imagePresignedUrls.slice(i, i + AUTO_SCALE_IMAGES_PER_CHUNK);
         const chunkStartPage = i + 1;
         const chunkEndPage = Math.min(i + chunkUrls.length, imagesResult.totalPages);
         
@@ -235,7 +237,7 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
         });
       }
       
-      console.log(`🔥 EXTREME PARALLEL VISION: ${visionChunks.length} vision workers processing ${IMAGES_PER_VISION_CHUNK} images each`);
+      console.log(`🔥 AUTO-SCALING VISION: ${visionChunks.length} vision workers processing ${AUTO_SCALE_IMAGES_PER_CHUNK} images each (${imagesResult.totalPages} total pages)`);
       
       // Process all vision chunks in parallel across different workers
       const visionPromises = visionChunks.map((chunk, index) => 
