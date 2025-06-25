@@ -46,7 +46,7 @@ export class PDFToImagesClient {
     this.s3Client = config.s3Client;
     this.bucket = config.bucket;
     this.tempDir = config.tempDir || '/tmp';
-    this.dpi = config.dpi || 300;
+    this.dpi = config.dpi || 200; // ChatGPT's sweet spot: 150-200 DPI for OCR clarity + speed
     this.maxHeight = config.maxHeight || 1998; // Under 2000px limit for GPT-4o
     this.format = config.format || 'png';
   }
@@ -140,6 +140,110 @@ export class PDFToImagesClient {
   }
 
   /**
+   * 🚀 OPTIMIZATION: Get shared PDF file to avoid redundant downloads across parallel chunks
+   * Downloads once and caches for reuse by all chunks with proper locking
+   */
+  private async getSharedPDF(presignedUrl: string, activityId: string): Promise<string> {
+    // Create shared cache directory based on presigned URL hash (all chunks share same PDF)
+    const crypto = await import('crypto');
+    const urlHash = crypto.createHash('md5').update(presignedUrl).digest('hex').substring(0, 8);
+    const sharedCacheDir = path.join(this.tempDir, `shared_pdf_${urlHash}`);
+    const sharedPdfPath = path.join(sharedCacheDir, 'shared_input.pdf');
+    const lockPath = path.join(sharedCacheDir, 'download.lock');
+    
+    // Create shared directory with proper permissions
+    await fs.mkdir(sharedCacheDir, { recursive: true });
+    
+    // Try to acquire lock with retries for race condition handling
+    let lockAcquired = false;
+    
+    for (let attempt = 0; attempt < 30; attempt++) {
+      try {
+        // Check if PDF already exists and is complete
+        const stats = await fs.stat(sharedPdfPath);
+        if (stats.size > 1000000) { // Must be at least 1MB (reasonable PDF size)
+          console.log(`📋 Using cached PDF: ${sharedPdfPath} (${stats.size} bytes)`);
+          return sharedPdfPath;
+        }
+      } catch {
+        // PDF doesn't exist yet
+      }
+      
+      try {
+        // Try to acquire exclusive lock
+        await fs.writeFile(lockPath, activityId, { flag: 'wx' });
+        console.log(`🔒 Acquired download lock for activity ${activityId}`);
+        lockAcquired = true;
+        break;
+      } catch (lockError) {
+        // Lock exists, wait briefly and retry
+        console.log(`⏳ Waiting for download by another chunk (attempt ${attempt + 1}/30)...`);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        
+        if (attempt === 29) {
+          // Force break lock after 30 seconds
+          try {
+            await fs.unlink(lockPath);
+            console.log(`🔓 Force-released stale download lock`);
+          } catch {
+            // Ignore error
+          }
+        }
+      }
+    }
+
+    if (!lockAcquired) {
+      throw new Error('Failed to acquire download lock after 30 attempts');
+    }
+
+    try {
+      // Double-check if another process downloaded while we were waiting
+      try {
+        const stats = await fs.stat(sharedPdfPath);
+        if (stats.size > 1000000) {
+          console.log(`📋 Another chunk downloaded PDF: ${sharedPdfPath} (${stats.size} bytes)`);
+          return sharedPdfPath;
+        }
+      } catch {
+        // PDF still doesn't exist, we need to download
+      }
+
+      // We have the lock, download the PDF
+      console.log(`📥 Downloading PDF from presigned URL (will be cached for other chunks)`);
+      
+      // Use atomic write to prevent corruption
+      const tempPdfPath = `${sharedPdfPath}.tmp.${Date.now()}`;
+      
+      // Download PDF
+      const response = await fetch(presignedUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to download PDF: ${response.status} ${response.statusText}`);
+      }
+      
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      
+      // Write to temp file first, then atomically move to final location
+      await fs.writeFile(tempPdfPath, buffer);
+      await fs.rename(tempPdfPath, sharedPdfPath);
+      
+      console.log(`✅ Downloaded PDF to shared cache: ${buffer.length} bytes`);
+      return sharedPdfPath;
+      
+    } finally {
+      // Always release the lock if we acquired it
+      if (lockAcquired) {
+        try {
+          await fs.unlink(lockPath);
+          console.log(`🔓 Released download lock`);
+        } catch {
+          // Ignore error if lock was already removed
+        }
+      }
+    }
+  }
+
+  /**
    * Download PDF from S3 to local file (legacy method)
    */
   private async downloadPDFFromS3(s3Key: string, workDir: string): Promise<string> {
@@ -227,6 +331,164 @@ export class PDFToImagesClient {
   }
 
   /**
+   * 🎯 CHATGPT-STYLE: Minimal smart preprocessing that helps Vision API without destroying text
+   * Based on analysis of how ChatGPT processes PDFs effectively
+   */
+  private async smartMinimalPreprocessing(imageFiles: string[], workDir: string): Promise<string[]> {
+    const processedFiles: string[] = [];
+    
+    // Process images in parallel for speed
+    const processPromises = imageFiles.map(async (imagePath, index) => {
+      const fileName = path.basename(imagePath);
+      const processedPath = path.join(workDir, `smart_${fileName}`);
+      
+      try {
+        await this.applyMinimalSmartProcessing(imagePath, processedPath);
+        console.log(`🎯 Smart-processed: ${fileName}`);
+        return processedPath;
+      } catch (error) {
+        console.warn(`⚠️ Failed to process ${fileName}, using original: ${error}`);
+        return imagePath; // Use original if processing fails
+      }
+    });
+    
+    const results = await Promise.all(processPromises);
+    processedFiles.push(...results);
+    
+    return processedFiles;
+  }
+
+  /**
+   * Apply minimal smart processing like ChatGPT likely does
+   * Focus on clarity without aggressive filtering that destroys text
+   */
+  private async applyMinimalSmartProcessing(inputPath: string, outputPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // ChatGPT-style minimal processing:
+      // 1. Ensure minimum resolution for Vision API
+      // 2. Light normalization only
+      // 3. No aggressive filters that distort text
+      const args = [
+        inputPath,
+        // Ensure minimum resolution (Google Vision requirement: 1024x768)
+        '-resize', '1024x768^', // Force minimum size
+        '-resize', '1024x768>', // Only upscale if needed
+        // Very light normalization only
+        '-normalize', // Auto-adjust levels (gentle)
+        // Ensure proper format for Vision API
+        '-colorspace', 'sRGB',
+        '-format', 'PNG',
+        outputPath
+      ];
+      
+      const process = spawn('magick', args, {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      
+      let stderr = '';
+      
+      process.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+      
+      process.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`Smart processing failed with code ${code}: ${stderr}`));
+          return;
+        }
+        resolve();
+      });
+      
+      process.on('error', (error) => {
+        reject(new Error(`Failed to start smart processing: ${error.message}`));
+      });
+    });
+  }
+
+  /**
+   * 🎯 VISION API OPTIMIZATION: Apply essential preprocessing for OCR accuracy
+   * Based on Google Cloud Vision API requirements and best practices
+   */
+  private async optimizeForVisionAPI(imageFiles: string[], workDir: string): Promise<string[]> {
+    const optimizedFiles: string[] = [];
+    
+    // Process images in parallel for speed
+    const optimizePromises = imageFiles.map(async (imagePath, index) => {
+      const fileName = path.basename(imagePath);
+      const optimizedPath = path.join(workDir, `vision_optimized_${fileName}`);
+      
+      try {
+        await this.optimizeForVision(imagePath, optimizedPath);
+        console.log(`🎨 Vision-optimized: ${fileName}`);
+        return optimizedPath;
+      } catch (error) {
+        console.warn(`⚠️ Failed to optimize ${fileName}, using original: ${error}`);
+        return imagePath; // Use original if optimization fails
+      }
+    });
+    
+    const results = await Promise.all(optimizePromises);
+    optimizedFiles.push(...results);
+    
+    return optimizedFiles;
+  }
+
+  /**
+   * Optimize a single image specifically for Google Cloud Vision API OCR
+   * Applies research-based optimizations for text detection accuracy
+   */
+  private async optimizeForVision(inputPath: string, outputPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Vision API Optimization based on research:
+      // 1. Ensure minimum 1024x768 resolution (Google requirement)
+      // 2. Apply contrast enhancement (CLAHE equivalent)
+      // 3. Apply light sharpening for text clarity
+      // 4. Ensure sRGB colorspace
+      // 5. Remove noise while preserving text edges
+      const args = [
+        inputPath,
+        // Ensure minimum resolution for OCR (Google requirement: 1024x768)
+        '-resize', '1024x768^', // ^ forces exact minimum while maintaining aspect ratio
+        '-resize', '1024x768>', // Only upscale if needed
+        // Enhance contrast for text visibility (CLAHE equivalent)
+        '-clahe', '2x2+128+3', // Contrast Limited Adaptive Histogram Equalization
+        // Light sharpening for text clarity (not too aggressive)
+        '-unsharp', '0x1+0.5+0', // Radius x Sigma + Amount + Threshold
+        // Ensure proper colorspace and quality
+        '-colorspace', 'sRGB',
+        '-depth', '8',
+        // Light noise reduction while preserving text edges
+        '-despeckle', // Remove small noises
+        // Output format
+        '-format', 'PNG', // Lossless format for OCR
+        outputPath
+      ];
+      
+      const process = spawn('magick', args, {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      
+      let stderr = '';
+      
+      process.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+      
+      process.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`Vision optimization failed with code ${code}: ${stderr}`));
+          return;
+        }
+        resolve();
+      });
+      
+      process.on('error', (error) => {
+        reject(new Error(`Failed to start Vision optimization: ${error.message}`));
+      });
+    });
+  }
+
+  /**
    * Optimize images with ImageMagick via TypeScript child process
    * Resize if needed and optimize for web/vision processing
    */
@@ -308,7 +570,7 @@ export class PDFToImagesClient {
         // Read image file
         const imageBuffer = await fs.readFile(imagePath);
         
-        // Get image dimensions using ImageMagick identify
+        // 🎯 VISION API: Get actual image dimensions for accurate metadata
         const { width, height } = await this.getImageDimensions(imagePath);
         
         // Upload to S3
@@ -567,17 +829,16 @@ export class PDFToImagesClient {
       await fs.mkdir(workDir, { recursive: true });
       console.log(`📁 Created work directory: ${workDir}`);
       
-      // Download PDF using presigned URL
-      console.log(`📥 Downloading PDF from presigned URL`);
-      const pdfPath = await this.downloadPDFFromPresignedUrl(pdfPresignedUrl, workDir);
+      // 🚀 OPTIMIZATION: Use shared PDF cache to avoid redundant downloads
+      const pdfPath = await this.getSharedPDF(pdfPresignedUrl, activityId);
       
       // Convert specific page range
       console.log(`🔄 Converting pages ${startPage}-${endPage} at ${this.dpi} DPI...`);
       const rawImageFiles = await this.convertPageRange(pdfPath, workDir, startPage, endPage);
       
-      // Optimize images with ImageMagick if needed
-      console.log(`🎨 Optimizing ${rawImageFiles.length} images with ImageMagick...`);
-      const optimizedImages = await this.optimizeWithImageMagick(rawImageFiles, workDir);
+      // 🎯 SMART PREPROCESSING: Minimal processing to help Vision API without text distortion
+      console.log(`🎯 Applying minimal smart preprocessing for Vision API...`);
+      const optimizedImages = await this.smartMinimalPreprocessing(rawImageFiles, workDir);
       
       // Upload to S3
       console.log(`📤 Uploading ${optimizedImages.length} optimized images to S3...`);

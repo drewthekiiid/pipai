@@ -198,7 +198,7 @@ async function startAnalysisWorkflow(fileUrl: string, fileName: string, userId: 
     s3Key,
     analysisType: 'document', // Default to document for construction analysis
     options: {
-      extractImages: false,
+      extractImages: true,
       generateSummary: true,
       detectLanguage: true,
     },

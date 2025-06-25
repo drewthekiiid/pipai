@@ -54,7 +54,7 @@ export class PipAIUploadClient {
     this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
     this.defaultOptions = {
       userId: 'default-user',
-      extractImages: false,
+      extractImages: true,
       generateSummary: true,
       detectLanguage: true,
       analysisType: 'auto',

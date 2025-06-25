@@ -96,32 +96,32 @@ async function createWorker(connection: NativeConnection): Promise<Worker> {
 
     console.log(`   Using workflows path: ${workflowsPath}`);
 
-    // Create and configure Temporal worker with HIGH PERFORMANCE settings
+    // Create and configure Temporal worker with MAXIMUM PERFORMANCE settings for 16 CPUs + 32GB RAM
     const worker = await Worker.create({
       connection: connection,
       namespace: config.temporal.namespace,
       taskQueue: process.env.TEMPORAL_TASK_QUEUE || 'pip-ai-task-queue',
       workflowsPath,
       activities,
-      // AUTO-SCALING PERFORMANCE: Dynamically handles any document size
-      maxConcurrentActivityTaskExecutions: 120, // AUTO-SCALE: Handle up to 120 activities for massive docs
-      maxConcurrentWorkflowTaskExecutions: 30,  // Increased to 30 for multiple large documents
-      // Polling settings for faster task pickup
-      maxConcurrentActivityTaskPolls: 30,       // AUTO-SCALE: Increased to 30 for faster pickup
-      maxConcurrentWorkflowTaskPolls: 8,        // Increased from 5 to 8
-      // Heartbeat settings for long-running activities
-      maxHeartbeatThrottleInterval: '30s',
-      defaultHeartbeatThrottleInterval: '15s',
-      // Disable advanced features for stability
+      // 🚀 MAXIMUM PARALLELIZATION: Fully utilize 16 CPUs + 32GB RAM
+      maxConcurrentActivityTaskExecutions: 500, // EXTREME AUTO-SCALE: Handle up to 500 activities for massive parallel processing
+      maxConcurrentWorkflowTaskExecutions: 100,  // Handle 100 concurrent workflows for extreme throughput
+      // Polling settings for maximum task pickup speed
+      maxConcurrentActivityTaskPolls: 50,       // Maximum polling for instant task pickup
+      maxConcurrentWorkflowTaskPolls: 20,        // Increased to 20 for maximum workflow throughput
+      // Heartbeat settings optimized for high-performance processing
+      maxHeartbeatThrottleInterval: '10s',       // Faster heartbeats for better monitoring
+      defaultHeartbeatThrottleInterval: '5s',    // More responsive heartbeats
+      // Disable advanced features for maximum stability and performance
       enableSDKTracing: false,
       debugMode: false
     });
 
-    console.log('✅ Worker created successfully - AUTO-SCALING MODE');
+    console.log('✅ Worker created successfully - MAXIMUM PERFORMANCE MODE');
     console.log(`   Task Queue: ${process.env.TEMPORAL_TASK_QUEUE || 'pip-ai-task-queue'}`);
-    console.log(`   Max Concurrent Activities: 120 (AUTO-SCALING FOR ANY DOCUMENT SIZE)`);
-    console.log(`   Max Concurrent Workflows: 30`);
-    console.log(`   Activity Polls: 30 | Workflow Polls: 8`);
+    console.log(`   Max Concurrent Activities: 500 (EXTREME AUTO-SCALE: 16 CPUs + 32GB RAM)`);
+    console.log(`   Max Concurrent Workflows: 100`);
+    console.log(`   Activity Polls: 50 | Workflow Polls: 20`);
     
     return worker;
 

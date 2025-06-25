@@ -659,8 +659,8 @@ async function processChunkedAnalysis(openai: any, text: string, activityId: str
   const chunkResults = await Promise.all(chunkPromises);
   console.log(`[${activityId}] Completed parallel analysis of ${chunkResults.length} chunks`);
   
-  // Combine results intelligently
-  return combineChunkAnalyses(chunkResults, activityId);
+  // Use synthesis agent for cohesive professional reports
+  return await synthesizeChunkResults(chunkResults, openai, activityId);
 }
 
 /**
@@ -748,70 +748,110 @@ Keep analysis focused and structured for combination with other sections.`;
 }
 
 /**
- * Combine multiple chunk analyses into a cohesive result
+ * Synthesis agent - "Magazine Editor" for cohesive construction reports
+ * Takes independent chunk analyses and weaves them into one professional report
  */
-function combineChunkAnalyses(
+async function synthesizeChunkResults(
+  chunkResults: Array<{chunkIndex: number; analysis: string; context: string}>,
+  openai: any,
+  activityId: string
+): Promise<AIAnalysisResult> {
+  console.log(`[${activityId}] Starting synthesis agent to combine ${chunkResults.length} chunk analyses...`);
+
+  // Build comprehensive input for synthesis
+  const synthesisInput = chunkResults.map(chunk => `
+=== SECTION ${chunk.chunkIndex + 1} ===
+Context: ${chunk.context}
+Analysis:
+${chunk.analysis}
+---`).join('\n');
+
+  const synthesisPrompt = `You are EstimAItor's Chief Construction Analyst. Review these independent section analyses and create ONE cohesive, professional construction report.
+
+INDEPENDENT SECTION ANALYSES:
+${synthesisInput}
+
+YOUR TASK: Create a unified construction analysis that:
+✅ Resolves any contradictions between sections
+✅ Identifies relationships and patterns across the document
+✅ Presents findings as one continuous professional report  
+✅ Uses proper construction industry terminology
+✅ Organizes by CSI divisions where appropriate
+✅ Provides executive summary and actionable insights
+
+OUTPUT FORMAT:
+
+EXECUTIVE SUMMARY
+[2-3 sentence overview of the project and key findings]
+
+PROJECT DETAILS
+- Project Name: [Extract from sections]
+- Location: [Extract if available]
+- Document Type: [Plans/Specs/etc.]
+- Total Pages Analyzed: ${chunkResults.length} sections
+
+TRADE ANALYSIS
+[Organize detected trades by CSI division, resolve duplicates, note scope]
+
+KEY FINDINGS
+[3-5 most important insights for project management]
+
+RECOMMENDATIONS
+[Actionable next steps based on analysis]
+
+Write as a senior construction professional would - clear, actionable, and comprehensive.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: synthesisPrompt }],
+      max_tokens: 4000,
+      temperature: 0.1,
+    });
+
+    const synthesizedReport = response.choices[0].message.content || '';
+    console.log(`[${activityId}] Synthesis agent completed: ${synthesizedReport.length} characters`);
+
+    // Parse the synthesized report
+    return parseConstructionAnalysis(synthesizedReport);
+
+  } catch (error) {
+    console.error(`[${activityId}] Synthesis agent failed, falling back to basic merge:`, error);
+    // Fallback to basic combination if synthesis fails
+    return basicCombineChunks(chunkResults, activityId);
+  }
+}
+
+/**
+ * Fallback basic combination when synthesis agent fails
+ */
+function basicCombineChunks(
   chunkResults: Array<{chunkIndex: number; analysis: string; context: string}>,
   activityId: string
 ): AIAnalysisResult {
-  
   const allTrades = new Set<string>();
   const allScopeItems = new Set<string>();
-  const allInsights: string[] = [];
   
-  // Process each chunk result
-  chunkResults.forEach((chunk, index) => {
-    // Extract trades from chunk
+  chunkResults.forEach((chunk) => {
     const tradeMatches = chunk.analysis.match(/(?:TRADE|Division|☐)\s*[:\-]?\s*([^:\n]{5,})/gi);
     if (tradeMatches) {
       tradeMatches.forEach(match => {
         const trade = match.replace(/^(TRADE|Division|☐)\s*[:\-]?\s*/i, '').trim();
-        if (trade.length > 3 && !trade.includes('[') && !trade.includes('detected')) {
+        if (trade.length > 3 && !trade.includes('[')) {
           allTrades.add(trade);
         }
       });
     }
-    
-    // Extract scope items
-    const scopeMatches = chunk.analysis.match(/(?:SCOPE|☐)\s*[:\-]?\s*([^:\n]{10,})/gi);
-    if (scopeMatches) {
-      scopeMatches.forEach(match => {
-        const scope = match.replace(/^(SCOPE|☐)\s*[:\-]?\s*/i, '').trim();
-        if (scope.length > 10 && !scope.includes('[')) {
-          allScopeItems.add(scope);
-        }
-      });
-    }
-    
-    // Add chunk insight
-    allInsights.push(`${chunk.context}: Analysis completed`);
   });
   
   const trades = Array.from(allTrades);
-  const scopeItems = Array.from(allScopeItems);
-  
-  // Build comprehensive summary
-  const summary = `GPT-4o Chunked Analysis Results:
-  
-DOCUMENT PROCESSING:
-- Total Sections Analyzed: ${chunkResults.length}
-- Parallel Processing: Successfully completed
-- Trade Detection: ${trades.length} trades identified
-- Scope Analysis: ${scopeItems.length} scope items extracted
-
-PRIMARY TRADES DETECTED:
-${trades.slice(0, 15).map(t => `• ${t}`).join('\n')}
-
-ANALYSIS STATUS: ✅ Large document successfully processed using chunked parallel analysis to overcome token limits.`;
-  
-  console.log(`[${activityId}] Combined analysis: ${trades.length} trades, ${scopeItems.length} scope items from ${chunkResults.length} chunks`);
   
   return {
-    summary,
-    insights: trades.length > 0 ? trades : ['Document analysis completed - trades detected in chunks'],
-    keyTopics: scopeItems.length > 0 ? Array.from(scopeItems).slice(0, 25) : ['Multi-section construction analysis'],
+    summary: `Construction Analysis Summary: ${trades.length} trades detected across ${chunkResults.length} document sections. Analysis completed with parallel processing.`,
+    insights: trades.length > 0 ? trades : ['Document analysis completed'],
+    keyTopics: trades.length > 0 ? trades.slice(0, 15) : ['Multi-section analysis'],
     sentiment: 'positive',
-    complexity: Math.min(10, Math.max(6, trades.length / 2)),
+    complexity: Math.min(10, Math.max(5, trades.length / 2)),
   };
 }
 
@@ -1256,7 +1296,7 @@ export async function analyzeImagesWithVisionActivity(conversionResult: {
   bucket: string;
 }): Promise<string> {
   const { activityId } = getActivityInfo();
-  console.log(`[${activityId}] Starting Google Cloud Vision analysis of ${conversionResult.totalPages} images`);
+  console.log(`[${activityId}] Starting MAXIMUM PARALLEL Google Cloud Vision analysis of ${conversionResult.totalPages} images (16 CPUs + 32GB RAM)`);
 
   try {
           // Initialize Google Cloud Vision client with credentials
@@ -1281,87 +1321,72 @@ export async function analyzeImagesWithVisionActivity(conversionResult: {
 
     console.log(`[${activityId}] Processing ${conversionResult.totalPages} pages with Google Cloud Vision...`);
 
-    // For better performance with large documents, process in batches (SAME AS WORKING VERSION)
-    const BATCH_SIZE = 2; // ULTRA-FAST: Same as working version 
-    const batches: string[][] = [];
-    
-    for (let i = 0; i < conversionResult.imagePresignedUrls.length; i += BATCH_SIZE) {
-      batches.push(conversionResult.imagePresignedUrls.slice(i, i + BATCH_SIZE));
-    }
+    // 🚀 MAXIMUM PARALLELIZATION: Process ALL images in parallel with 16 CPUs + 32GB RAM
+    console.log(`[${activityId}] 🔄 Processing ${conversionResult.imagePresignedUrls.length} images in PARALLEL (no batching for maximum throughput)...`);
 
-    console.log(`[${activityId}] 🔄 Processing ${batches.length} batches of images (${BATCH_SIZE} images per batch)...`);
-
-    let allExtractedText = '';
-    
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      const startPage = batchIndex * BATCH_SIZE + 1;
-      const endPage = Math.min(startPage + batch.length - 1, conversionResult.totalPages);
+    // Process all images in parallel for maximum throughput
+    const imagePromises = conversionResult.imagePresignedUrls.map(async (imageUrl, index) => {
+      const pageNumber = index + 1;
       
-      console.log(`[${activityId}] 📄 Processing batch ${batchIndex + 1}/${batches.length}: pages ${startPage}-${endPage}`);
-
       try {
-        // Process batch with Google Cloud Vision (replacing GPT-4o call)
-        let batchText = '';
-        
-        for (let urlIndex = 0; urlIndex < batch.length; urlIndex++) {
-          const imageUrl = batch[urlIndex];
-          const pageNumber = startPage + urlIndex;
-          
-          // Download image for Vision API
-          const imageResponse = await fetch(imageUrl);
-          if (!imageResponse.ok) {
-            throw new Error(`Failed to download image: ${imageResponse.status} ${imageResponse.statusText}`);
-          }
-          
-          const imageBuffer = await imageResponse.arrayBuffer();
-          const imageBytes = Buffer.from(imageBuffer);
-
-          // Call Google Cloud Vision API for text detection
-          const [result] = await client.textDetection({
-            image: {
-              content: imageBytes,
-            },
-            imageContext: {
-              languageHints: ['en'],
-            },
-          });
-
-          const detections = result.textAnnotations;
-          let pageText = '';
-
-          if (detections && detections.length > 0) {
-            // First detection contains the entire text block
-            pageText = detections[0]?.description || '';
-            // Clean and format the extracted text
-            pageText = pageText
-              .replace(/\n{3,}/g, '\n\n')
-              .replace(/\s{3,}/g, '  ')
-              .trim();
-          }
-
-          if (!pageText.trim()) {
-            pageText = `[Page ${pageNumber}: No readable text detected]`;
-          }
-
-          batchText += `Page ${pageNumber}:\n${pageText}\n\n`;
+        // Download image for Vision API
+        const imageResponse = await fetch(imageUrl);
+        if (!imageResponse.ok) {
+          throw new Error(`Failed to download image: ${imageResponse.status} ${imageResponse.statusText}`);
         }
         
-        // Add page markers for organization (SAME FORMAT AS WORKING VERSION)
-        allExtractedText += `\n\n=== PAGES ${startPage}-${endPage} ===\n${batchText}\n`;
-        
-        console.log(`[${activityId}] ✅ Batch ${batchIndex + 1} completed: ${batchText.length} characters extracted`);
-        
-        // Small delay between batches to respect rate limits (SAME AS WORKING VERSION)
-        if (batchIndex < batches.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+        const imageBuffer = await imageResponse.arrayBuffer();
+        const imageBytes = Buffer.from(imageBuffer);
+
+        // Call Google Cloud Vision API for text detection
+        const [result] = await client.textDetection({
+          image: {
+            content: imageBytes,
+          },
+          imageContext: {
+            languageHints: ['en'],
+          },
+        });
+
+        const detections = result.textAnnotations;
+        let pageText = '';
+
+        if (detections && detections.length > 0) {
+          // First detection contains the entire text block
+          pageText = detections[0]?.description || '';
+          // Clean and format the extracted text
+          pageText = pageText
+            .replace(/\n{3,}/g, '\n\n')
+            .replace(/\s{3,}/g, '  ')
+            .trim();
         }
+
+        if (!pageText.trim()) {
+          pageText = `[Page ${pageNumber}: No readable text detected]`;
+        }
+
+        console.log(`[${activityId}] ✅ Page ${pageNumber} completed: ${pageText.length} characters extracted`);
+        
+        return {
+          pageNumber,
+          text: `Page ${pageNumber}:\n${pageText}\n\n`
+        };
         
       } catch (error) {
-        console.error(`[${activityId}] ❌ Failed to process batch ${batchIndex + 1}:`, error);
-        throw new Error(`Vision analysis failed for pages ${startPage}-${endPage}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        console.error(`[${activityId}] ❌ Failed to process page ${pageNumber}:`, error);
+        return {
+          pageNumber,
+          text: `Page ${pageNumber}: [Error processing page - ${error instanceof Error ? error.message : 'Unknown error'}]\n\n`
+        };
       }
-    }
+    });
+
+    // Wait for all parallel processing to complete
+    const pageResults = await Promise.all(imagePromises);
+    
+    // Sort by page number to maintain order and combine results
+    pageResults.sort((a, b) => a.pageNumber - b.pageNumber);
+    const allExtractedText = pageResults.map(result => result.text).join('');
 
     console.log(`[${activityId}] ✅ Google Cloud Vision analysis completed: ${allExtractedText.length} characters`);
     return allExtractedText;
@@ -1400,6 +1425,158 @@ function enhanceConstructionText(text: string, pageNumber: number): string {
   const pageContext = `\n[Page ${pageNumber} - Construction Document OCR via Google Cloud Vision]\n`;
   
   return pageContext + enhanced;
+}
+
+/**
+ * Get the actual page count of a PDF file with ROBUST timeout handling
+ * Based on Node.js best practices for handling hanging processes
+ */
+export async function getPDFPageCountActivity(downloadResult: DownloadFileResult): Promise<number> {
+  const { activityId } = getActivityInfo();
+  console.log(`[${activityId}] Getting actual PDF page count with robust timeout handling...`);
+
+  const tempDir = `/tmp/pagecount_${activityId}_${Date.now()}`;
+  let cleanupCompleted = false;
+
+  try {
+    await fs.mkdir(tempDir, { recursive: true });
+
+    // Download PDF
+    console.log(`[${activityId}] Downloading PDF from presigned URL...`);
+    const response = await fetch(downloadResult.presignedUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download PDF: ${response.status} ${response.statusText}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const pdfPath = path.join(tempDir, 'temp.pdf');
+    await fs.writeFile(pdfPath, Buffer.from(arrayBuffer));
+
+    // Execute pdfinfo with timeout
+    const pageCount = await executeWithRobustTimeout(pdfPath, activityId);
+    
+    // Cleanup
+    await fs.rm(tempDir, { recursive: true, force: true });
+    cleanupCompleted = true;
+    
+    console.log(`[${activityId}] ✅ Successfully determined PDF page count: ${pageCount} pages`);
+    return pageCount;
+
+  } catch (error) {
+    // Ensure cleanup happens even on error
+    if (!cleanupCompleted) {
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      } catch (cleanupError) {
+        console.warn(`[${activityId}] Cleanup failed:`, cleanupError);
+      }
+    }
+    throw error;
+  }
+}
+
+/**
+ * Execute pdfinfo to get actual page count (much faster than pdftoppm)
+ * pdfinfo is designed specifically for PDF metadata, not image conversion
+ */
+async function executeWithRobustTimeout(pdfPath: string, activityId: string): Promise<number> {
+  const { spawn } = await import('child_process');
+  
+  return new Promise<number>((resolve, reject) => {
+    console.log(`[${activityId}] Using pdfinfo to get actual page count (fast!)...`);
+    
+    // Use pdfinfo instead of pdftoppm - it's designed for metadata, not conversion
+    const process = spawn('pdfinfo', [pdfPath], {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    let resolved = false;
+    let timeoutId: NodeJS.Timeout;
+
+    // Cleanup function
+    const cleanup = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    // Track process spawn
+    process.on('spawn', () => {
+      console.log(`[${activityId}] pdfinfo spawned successfully (PID: ${process.pid})`);
+    });
+
+    // Much shorter timeout since pdfinfo is fast for metadata
+    timeoutId = setTimeout(() => {
+      if (resolved) return;
+      
+      console.warn(`[${activityId}] pdfinfo timeout (5s), sending SIGTERM...`);
+      process.kill('SIGTERM');
+      
+      setTimeout(() => {
+        if (!resolved && process.pid && !process.killed) {
+          console.warn(`[${activityId}] Escalating to SIGKILL...`);
+          process.kill('SIGKILL');
+        }
+      }, 1000);
+      
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          reject(new Error(`pdfinfo timeout after 5 seconds`));
+        }
+      }, 1500);
+      
+    }, 5000); // 5 second timeout - pdfinfo should be very fast
+
+    process.stdout.on('data', (data: Buffer) => {
+      stdout += data.toString();
+    });
+
+    process.stderr.on('data', (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    process.on('close', (code: number, signal: string | null) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+
+      console.log(`[${activityId}] pdfinfo closed: code=${code}, signal=${signal}`);
+
+      if (signal) {
+        reject(new Error(`pdfinfo killed by signal: ${signal}`));
+        return;
+      }
+
+      if (code !== 0) {
+        reject(new Error(`pdfinfo failed with code ${code}, stderr: ${stderr.substring(0, 200)}`));
+        return;
+      }
+
+      // Parse page count from pdfinfo output
+      // pdfinfo outputs "Pages:          102" format
+      const match = stdout.match(/^Pages:\s+(\d+)/m);
+      if (match) {
+        const pageCount = parseInt(match[1], 10);
+        console.log(`[${activityId}] ✅ pdfinfo found ${pageCount} pages`);
+        resolve(pageCount);
+      } else {
+        reject(new Error(`Could not parse pdfinfo output: "${stdout.substring(0, 200)}"`));
+      }
+    });
+
+    process.on('error', (error: Error) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      
+      console.error(`[${activityId}] pdfinfo process error: ${error.message}`);
+      reject(new Error(`pdfinfo process error: ${error.message}`));
+    });
+  });
 }
 
 /**

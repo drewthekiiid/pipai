@@ -41,7 +41,7 @@ async function testWorkflowExecution() {
       fileName: 'test-file.pdf',
       analysisType: 'document',
       options: {
-        extractImages: false,
+        extractImages: true,
         generateSummary: true,
         detectLanguage: true,
       }
