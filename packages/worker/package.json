@@ -11,27 +11,27 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.832.0",
-    "@aws-sdk/s3-request-presigner": "^3.832.0",
+    "@aws-sdk/client-s3": "^3.837.0",
+    "@aws-sdk/s3-request-presigner": "^3.837.0",
     "@google-cloud/vision": "^5.2.0",
     "@temporalio/activity": "^1.11.8",
     "@temporalio/client": "^1.11.8",
     "@temporalio/worker": "^1.11.8",
     "@temporalio/workflow": "^1.11.8",
     "axios": "^1.10.0",
-    "dotenv": "^16.5.0",
-    "form-data": "^4.0.1",
-    "openai": "^5.6.0"
+    "dotenv": "^16.6.0",
+    "form-data": "^4.0.3",
+    "openai": "^5.8.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.29.0",
-    "@types/node": "^24.0.3",
-    "@typescript-eslint/eslint-plugin": "^8.34.1",
-    "@typescript-eslint/parser": "^8.34.1",
+    "@types/node": "^24.0.4",
+    "@typescript-eslint/eslint-plugin": "^8.35.0",
+    "@typescript-eslint/parser": "^8.35.0",
     "globals": "^16.2.0",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.34.1"
+    "typescript-eslint": "^8.35.0"
   },
   "engines": {
     "node": ">=20.0.0"

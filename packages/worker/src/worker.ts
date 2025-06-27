@@ -15,14 +15,14 @@ dotenv.config({ path: '../../.env.local', override: true }); // Allow local over
 
 // Debug: log environment variables
 console.log('🔍 Environment Debug:');
-console.log(`   TEMPORAL_ADDRESS: ${process.env.TEMPORAL_ADDRESS}`);
-console.log(`   TEMPORAL_NAMESPACE: ${process.env.TEMPORAL_NAMESPACE}`);
-console.log(`   TEMPORAL_API_KEY: ${process.env.TEMPORAL_API_KEY ? '***' : 'NOT_SET'}`);
-console.log(`   OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? '***' : 'NOT_SET'}`);
-console.log(`   AWS_ACCESS_KEY_ID: ${process.env.AWS_ACCESS_KEY_ID ? '***' : 'NOT_SET'}`);
-console.log(`   AWS_SECRET_ACCESS_KEY: ${process.env.AWS_SECRET_ACCESS_KEY ? '***' : 'NOT_SET'}`);
-console.log(`   AWS_REGION: ${process.env.AWS_REGION || 'NOT_SET'}`);
-console.log(`   Environment files loaded: ../../.env, ../../.env.local`);
+console.log('   TEMPORAL_ADDRESS: ' + process.env.TEMPORAL_ADDRESS);
+console.log('   TEMPORAL_NAMESPACE: ' + process.env.TEMPORAL_NAMESPACE);
+console.log('   TEMPORAL_API_KEY: ' + (process.env.TEMPORAL_API_KEY ? '***' : 'NOT_SET'));
+console.log('   OPENAI_API_KEY: ' + (process.env.OPENAI_API_KEY ? '***' : 'NOT_SET'));
+console.log('   AWS_ACCESS_KEY_ID: ' + (process.env.AWS_ACCESS_KEY_ID ? '***' : 'NOT_SET'));
+console.log('   AWS_SECRET_ACCESS_KEY: ' + (process.env.AWS_SECRET_ACCESS_KEY ? '***' : 'NOT_SET'));
+console.log('   AWS_REGION: ' + (process.env.AWS_REGION || 'NOT_SET'));
+console.log('   Environment files loaded: ../../.env, ../../.env.local');
 
 // ES module compatibility
 const __filename = fileURLToPath(import.meta.url);
@@ -57,9 +57,9 @@ let metricsData = {
 
 async function createConnection(): Promise<NativeConnection> {
   console.log('🔌 Connecting to Temporal...');
-  console.log(`   Address: ${config.temporal.address}`);
-  console.log(`   Namespace: ${config.temporal.namespace}`);
-  console.log(`   Environment: ${config.app.environment}`);
+  console.log('   Address: ' + config.temporal.address);
+  console.log('   Namespace: ' + config.temporal.namespace);
+  console.log('   Environment: ' + config.app.environment);
 
   try {
     const connectionOptions: any = {
@@ -94,7 +94,7 @@ async function createWorker(connection: NativeConnection): Promise<Worker> {
       ? fileURLToPath(new URL('./workflows.js', import.meta.url))  // Use .js for compiled version
       : fileURLToPath(new URL('./workflows.ts', import.meta.url)); // Use .ts for dev/tsx version
 
-    console.log(`   Using workflows path: ${workflowsPath}`);
+    console.log('   Using workflows path: ' + workflowsPath);
 
     // Create and configure Temporal worker with MAXIMUM PERFORMANCE settings for 16 CPUs + 32GB RAM
     const worker = await Worker.create({
@@ -118,10 +118,10 @@ async function createWorker(connection: NativeConnection): Promise<Worker> {
     });
 
     console.log('✅ Worker created successfully - MAXIMUM PERFORMANCE MODE');
-    console.log(`   Task Queue: ${process.env.TEMPORAL_TASK_QUEUE || 'pip-ai-task-queue'}`);
-    console.log(`   Max Concurrent Activities: 500 (EXTREME AUTO-SCALE: 16 CPUs + 32GB RAM)`);
-    console.log(`   Max Concurrent Workflows: 100`);
-    console.log(`   Activity Polls: 50 | Workflow Polls: 20`);
+    console.log('   Task Queue: ' + (process.env.TEMPORAL_TASK_QUEUE || 'pip-ai-task-queue'));
+    console.log('   Max Concurrent Activities: 500 (EXTREME AUTO-SCALE: 16 CPUs + 32GB RAM)');
+    console.log('   Max Concurrent Workflows: 100');
+    console.log('   Activity Polls: 50 | Workflow Polls: 20');
     
     return worker;
 
@@ -133,7 +133,7 @@ async function createWorker(connection: NativeConnection): Promise<Worker> {
 
 function setupGracefulShutdown(worker: Worker): void {
   const shutdown = async (signal: string) => {
-    console.log(`\n🛑 Received ${signal}, shutting down gracefully...`);
+    console.log('\n🛑 Received ' + signal + ', shutting down gracefully...');
     
     try {
       // Stop accepting new work
@@ -143,10 +143,10 @@ function setupGracefulShutdown(worker: Worker): void {
       // Print final metrics
       const uptime = Date.now() - metricsData.startTime;
       console.log('\n📊 Final Metrics:');
-      console.log(`   Uptime: ${Math.floor(uptime / 1000)}s`);
-      console.log(`   Activities Executed: ${metricsData.activitiesExecuted}`);
-      console.log(`   Workflows Executed: ${metricsData.workflowsExecuted}`);
-      console.log(`   Errors: ${metricsData.errors}`);
+      console.log('   Uptime: ' + Math.floor(uptime / 1000) + 's');
+      console.log('   Activities Executed: ' + metricsData.activitiesExecuted);
+      console.log('   Workflows Executed: ' + metricsData.workflowsExecuted);
+      console.log('   Errors: ' + metricsData.errors);
       
       console.log('\n👋 Worker stopped gracefully');
       process.exit(0);
@@ -166,20 +166,20 @@ function startMetricsReporting(): void {
   setInterval(() => {
     const uptime = Date.now() - metricsData.startTime;
     console.log('\n📊 Worker Metrics:');
-    console.log(`   Uptime: ${Math.floor(uptime / 1000)}s`);
-    console.log(`   Activities Executed: ${metricsData.activitiesExecuted}`);
-    console.log(`   Workflows Executed: ${metricsData.workflowsExecuted}`);
-    console.log(`   Errors: ${metricsData.errors}`);
-    console.log(`   Activities/min: ${Math.round((metricsData.activitiesExecuted / uptime) * 60000)}`);
+    console.log('   Uptime: ' + Math.floor(uptime / 1000) + 's');
+    console.log('   Activities Executed: ' + metricsData.activitiesExecuted);
+    console.log('   Workflows Executed: ' + metricsData.workflowsExecuted);
+    console.log('   Errors: ' + metricsData.errors);
+    console.log('   Activities/min: ' + Math.round((metricsData.activitiesExecuted / uptime) * 60000));
   }, 60000);
 }
 
 async function run(): Promise<void> {
   console.log('🚀 Starting PIP AI Temporal Worker...');
-  console.log(`   Version: ${process.env.npm_package_version || 'unknown'}`);
-  console.log(`   Node.js: ${process.version}`);
-  console.log(`   Platform: ${process.platform}`);
-  console.log(`   Architecture: ${process.arch}`);
+  console.log('   Version: ' + (process.env.npm_package_version || 'unknown'));
+  console.log('   Node.js: ' + process.version);
+  console.log('   Platform: ' + process.platform);
+  console.log('   Architecture: ' + process.arch);
 
   try {
     // Create connection and worker
@@ -191,8 +191,8 @@ async function run(): Promise<void> {
     startMetricsReporting();
 
     console.log('\n🎯 Worker is ready and listening for tasks...');
-    console.log(`   Task Queue: ${config.worker.taskQueue}`);
-    console.log(`   Press Ctrl+C to shutdown gracefully\n`);
+    console.log('   Task Queue: ' + config.worker.taskQueue);
+    console.log('   Press Ctrl+C to shutdown gracefully\n');
 
     // Start processing
     await worker.run();

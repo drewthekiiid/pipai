@@ -261,7 +261,7 @@ export function ResultsDisplay({ result, file, onReset }: ResultsDisplayProps) {
                       </svg>
                     </div>
                     <p>Start by asking about the construction document analysis</p>
-                    <p className="text-sm mt-1">Try: "Show me all trades in CSI order" or use a quick prompt above</p>
+                    <p className="text-sm mt-1">Try: &ldquo;Show me all trades in CSI order&rdquo; or use a quick prompt above</p>
                   </div>
                 ) : (
                   chatMessages.map((message) => (

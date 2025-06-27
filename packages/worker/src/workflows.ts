@@ -13,11 +13,11 @@ const {
   analyzeImagesWithVisionActivity,
   generateEmbeddingsActivity,
   runAIAnalysisActivity,
-  saveAnalysisActivity,
   notifyUserActivity,
   cleanupTempFilesActivity,
   convertPDFPageRangeActivity,
-  getPDFPageCountActivity
+  getPDFPageCountActivity,
+  extractStructuredDataActivity
 } = proxyActivities<typeof activities>({
   startToCloseTimeout: '15 minutes',  // Extended timeout for massive parallel processing
   retry: {
@@ -27,15 +27,6 @@ const {
   },
 });
 
-// Configure longer timeout for AI analysis specifically
-const { runAIAnalysisActivity: runLongAIAnalysis } = proxyActivities<typeof activities>({
-  startToCloseTimeout: '10 minutes',  // Extended for GPT-4o processing
-  retry: {
-    initialInterval: '2s',
-    maximumInterval: '45s', 
-    maximumAttempts: 2,  // Fewer retries for expensive AI calls
-  },
-});
 
 // Configure optimized timeout for vision analysis (multiple images)
 const { analyzeImagesWithVisionActivity: runVisionAnalysis } = proxyActivities<typeof activities>({
@@ -99,7 +90,7 @@ interface AnalysisResult {
  * Orchestrates the complete analysis pipeline with modern PDF → Images → Vision approach
  */
 export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<AnalysisResult> {
-  const analysisId = `analysis-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const analysisId = 'analysis-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
   
   let status: AnalysisStatus = {
     step: 'initializing',
@@ -154,22 +145,25 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
     let textResult: string;
     
     // 🔍 DEBUG: Log filename detection
-    console.log(`🔍 [DEBUG] Filename detection:`);
-    console.log(`  - downloadResult.fileName: "${downloadResult.fileName}"`);
-    console.log(`  - toLowerCase(): "${downloadResult.fileName.toLowerCase()}"`);
-    console.log(`  - endsWith('.pdf'): ${downloadResult.fileName.toLowerCase().endsWith('.pdf')}`);
-    console.log(`  - Will route to: ${downloadResult.fileName.toLowerCase().endsWith('.pdf') ? 'PDF→Images→Vision' : 'Text Extraction'}`);
+    console.log('🔍 [DEBUG] Filename detection:');
+    console.log('  - downloadResult.fileName: "' + downloadResult.fileName + '"');
+    console.log('  - toLowerCase(): "' + downloadResult.fileName.toLowerCase() + '"');
+    console.log('  - endsWith(\'.pdf\'): ' + downloadResult.fileName.toLowerCase().endsWith('.pdf'));
+    console.log('  - Will route to: ' + (downloadResult.fileName.toLowerCase().endsWith('.pdf') ? 'PDF→Images→Vision' : 'Text Extraction'));
     
     if (downloadResult.fileName.toLowerCase().endsWith('.pdf')) {
-      // 🚀 MODERN APPROACH: PDF → Images → GPT-4o Vision with PARALLEL WORKERS
-      status = { step: 'PDF Processor: Getting actual PDF page count...', progress: 15 };
+      status = { step: 'PDF Processor: Extracting structured data with page references...', progress: 15 };
+      if (status.canceled) throw new Error('Analysis canceled');
+      
+      
+      status = { step: 'PDF Processor: Getting actual PDF page count...', progress: 18 };
       if (status.canceled) throw new Error('Analysis canceled');
       
       // 🎯 ACCURATE PAGE COUNT: Get the real number of pages instead of estimation
       const ACTUAL_PAGES = await getPDFPageCountActivity(downloadResult);
-      console.log(`🎯 ACTUAL PDF PAGES: ${ACTUAL_PAGES} (not estimated)`);
+      console.log('🎯 ACTUAL PDF PAGES: ' + ACTUAL_PAGES + ' (not estimated)');
       
-      status = { step: `PDF Processor: Converting ${ACTUAL_PAGES} pages to high-resolution images...`, progress: 18 };
+      status = { step: 'PDF Processor: Converting ' + ACTUAL_PAGES + ' pages to high-resolution images...', progress: 18 };
       await sleep(600);
       
       // 🚀 TRUE AUTO-SCALING: Dynamically scales to ANY document size using ACTUAL page count
@@ -202,7 +196,7 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
         }
       }
       
-      status = { step: `PDF Processor: MAXIMUM PARALLELIZATION - ${chunkPromises.length} workers processing ${AUTO_SCALE_PAGES_PER_CHUNK} pages each (${ACTUAL_PAGES} total pages) - 16 CPUs + 32GB RAM`, progress: 20 };
+      status = { step: 'PDF Processor: MAXIMUM PARALLELIZATION - ' + chunkPromises.length + ' workers processing ' + AUTO_SCALE_PAGES_PER_CHUNK + ' pages each (' + ACTUAL_PAGES + ' total pages) - 16 CPUs + 32GB RAM', progress: 20 };
       
       // Process all chunks in parallel across different workers
       const chunkResults = await Promise.all(chunkPromises);
@@ -222,7 +216,7 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
         bucket: validResults[0]?.bucket || process.env.AWS_S3_BUCKET || 'pip-ai-storage-qo56jg9l'
       };
       
-      status = { step: `Vision Agent: Analyzing ${imagesResult.totalPages} pages with GPT-4o Vision...`, progress: 35 };
+      status = { step: 'Vision Agent: Analyzing ' + imagesResult.totalPages + ' pages with GPT-4o Vision...', progress: 35 };
       await sleep(400);
       
       status = { step: 'Vision Agent: PARALLEL VISION ANALYSIS - Processing multiple batches simultaneously...', progress: 45 };
@@ -240,11 +234,11 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
           imagePresignedUrls: chunkUrls,
           totalPages: chunkUrls.length,
           bucket: imagesResult.bucket,
-          chunkInfo: `pages ${chunkStartPage}-${chunkEndPage}`
+          chunkInfo: 'pages ' + chunkStartPage + '-' + chunkEndPage
         });
       }
       
-      console.log(`🔥 MAXIMUM VISION PARALLELIZATION: ${visionChunks.length} vision workers processing ${AUTO_SCALE_IMAGES_PER_CHUNK} images each (${imagesResult.totalPages} total pages) - 16 CPUs + 32GB RAM`);
+      console.log('🔥 MAXIMUM VISION PARALLELIZATION: ' + visionChunks.length + ' vision workers processing ' + AUTO_SCALE_IMAGES_PER_CHUNK + ' images each (' + imagesResult.totalPages + ' total pages) - 16 CPUs + 32GB RAM');
       
       // Process all vision chunks in parallel across different workers
       const visionPromises = visionChunks.map((chunk, index) => 
@@ -260,7 +254,7 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
       // Combine all vision analysis results
       textResult = visionResults
         .sort((a, b) => a.chunkIndex - b.chunkIndex)
-        .map(vr => `\n\n=== VISION CHUNK ${vr.chunkIndex + 1} (${vr.chunkInfo}) ===\n${vr.result}`)
+        .map(vr => '\n\n=== VISION CHUNK ' + (vr.chunkIndex + 1) + ' (' + vr.chunkInfo + ') ===\n' + vr.result)
         .join('');
       
       log.info('PARALLEL Vision Analysis completed', {
@@ -307,21 +301,16 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
         });
       })(),
       
-      // Estimator Agent - AI analysis  
+      // Estimator Agent - AI analysis with enhanced prompting
       (async () => {
-        log.info('Starting AI analysis in parallel', { analysisId });
+        log.info('Starting AI analysis with enhanced prompting', { analysisId });
         await sleep(300);
         status = { step: 'Estimator Agent: Running GPT-4o construction analysis...', progress: 75 };
         await sleep(200);
         status = { step: 'Estimator Agent: Generating trade detection and scope of work...', progress: 85 };
-        return await runLongAIAnalysis({
+        return await runAIAnalysisActivity({
           text: textResult,
           analysisType: input.analysisType,
-          metadata: { 
-            pageCount: 0, 
-            processingTime: 0, 
-            processingMethod: downloadResult.fileName.toLowerCase().endsWith('.pdf') ? 'pdf-images-vision' : 'traditional-ocr'
-          },
         });
       })()
     ]);
@@ -350,19 +339,13 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
 
     status = { step: 'Manager Agent: Finalizing deliverables and notifications...', progress: 95 };
     
-    // 🚀 PARALLEL EXECUTION: Save analysis and notify user simultaneously  
-    await Promise.all([
-      // Exporter Agent - Save to database
-      saveAnalysisActivity(analysisData),
-      
-      // Manager Agent - User notification
-      notifyUserActivity({
-        userId: input.userId,
-        analysisId,
-        status: 'completed',
-        summary: aiResult.summary,
-      })
-    ]);
+    // 🚀 PARALLEL EXECUTION: Notify user (analysis data is already in memory)
+    await notifyUserActivity({
+      userId: input.userId,
+      analysisId,
+      status: 'completed',
+      summary: aiResult.summary,
+    });
 
     // Cleanup and final status (can run cleanup in background)
     const cleanupPromise = cleanupTempFilesActivity({ tempDir: downloadResult.tempDir });

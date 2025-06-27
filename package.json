@@ -24,14 +24,14 @@
     "node": "20.x"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.832.0",
-    "@aws-sdk/s3-request-presigner": "^3.832.0",
+    "@aws-sdk/client-s3": "^3.837.0",
+    "@aws-sdk/s3-request-presigner": "^3.837.0",
     "@prisma/client": "^6.10.1",
     "@temporalio/client": "^1.11.8",
     "@types/uuid": "^10.0.0",
     "@upstash/redis": "^1.35.0",
-    "dotenv": "^16.5.0",
-    "lucide-react": "^0.522.0",
+    "dotenv": "^16.6.0",
+    "lucide-react": "^0.525.0",
     "prisma": "^6.10.1",
     "ts-node": "^10.9.2",
     "uuid": "^11.1.0"
