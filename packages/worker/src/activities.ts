@@ -631,7 +631,7 @@ async function processSingleChunk(openai: any, text: string, activityId: string)
   return parseConstructionAnalysis(analysisText);
 }
 
-async function processSingleChunkWithStructure(openai: any, text: string, structuredData: StructuredDataResult | undefined, activityId: string): Promise<AIAnalysisResult> {
+async function processSingleChunkWithStructure(openai: any, text: string, structuredData: any | undefined, activityId: string): Promise<AIAnalysisResult> {
   const constructionPrompt = getConstructionPrompt();
   
   let contextInfo = '';
@@ -706,7 +706,7 @@ async function processChunkedAnalysis(openai: any, text: string, activityId: str
   return await synthesizeChunkResults(chunkResults, openai, activityId);
 }
 
-async function processChunkedAnalysisWithStructure(openai: any, text: string, structuredData: StructuredDataResult | undefined, activityId: string): Promise<AIAnalysisResult> {
+async function processChunkedAnalysisWithStructure(openai: any, text: string, structuredData: any | undefined, activityId: string): Promise<AIAnalysisResult> {
   const MAX_CHUNK_SIZE = 80000;
   
   const chunks = structuredData 
@@ -747,15 +747,15 @@ async function processChunkedAnalysisWithStructure(openai: any, text: string, st
     
     return {
       chunkIndex: index,
-      result: response.choices[0].message.content || '',
-      contextInfo: chunk.context + ' (Pages: ' + chunk.pageReferences.join(', ') + ', CSI: ' + chunk.csiDivisions.join(', ') + ')'
+      analysis: response.choices[0].message.content || '',
+      context: chunk.context + ' (Pages: ' + chunk.pageReferences.join(', ') + ', CSI: ' + chunk.csiDivisions.join(', ') + ')'
     };
   });
   
   const chunkResults = await Promise.all(chunkPromises);
   console.log('[' + activityId + '] Completed structured parallel analysis of ' + chunkResults.length + ' chunks');
   
-  return await synthesizeStructuredChunkResults(chunkResults, openai, activityId);
+  return await synthesizeChunkResults(chunkResults, openai, activityId);
 }
 
 /**
@@ -824,7 +824,7 @@ function splitTextIntelligently(text: string, maxSize: number): Array<{text: str
 
 function splitTextIntelligentlyWithStructure(
   text: string, 
-  structuredData: StructuredDataResult, 
+  structuredData: any, 
   maxSize: number
 ): Array<{text: string; context: string; pageReferences: number[]; csiDivisions: string[]}> {
   const chunks: Array<{text: string; context: string; pageReferences: number[]; csiDivisions: string[]}> = [];
@@ -1054,6 +1054,7 @@ function getConstructionPrompt(): string {
     '}\n\n' +
     'CITATION REQUIREMENTS:\n' +
     '- Include page numbers for ALL findings';
+}
 
 function parseStructuredConstructionAnalysis(analysisText: string): AIAnalysisResult {
   try {
@@ -1109,8 +1110,6 @@ function extractCSIDivisionsFromData(data: any): string[] {
     });
   }
   return [...new Set(divisions)];
-}
-
 }
 
 
@@ -1394,51 +1393,6 @@ function enhanceConstructionDocumentText(
   return enhancedText;
 }
 
-function parseStructuredConstructionAnalysis(analysisText: string): any {
-  try {
-    const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const jsonData = JSON.parse(jsonMatch[0]);
-      return {
-        analysis: analysisText,
-        trades: jsonData.trades || [],
-        materials: jsonData.materials || [],
-        insights: jsonData.insights || [],
-        pageReferences: extractPageReferencesFromData(jsonData),
-        csiDivisions: extractCSIDivisionsFromData(jsonData)
-      };
-    }
-  } catch (error) {
-    console.warn('Failed to parse structured analysis JSON:', error);
-  }
-  
-  return parseConstructionAnalysis(analysisText);
-}
-
-function extractPageReferencesFromData(data: any): number[] {
-  const refs: number[] = [];
-  if (data.trades) {
-    data.trades.forEach((trade: any) => {
-      if (trade.pageReferences) refs.push(...trade.pageReferences);
-    });
-  }
-  if (data.materials) {
-    data.materials.forEach((material: any) => {
-      if (material.pageReferences) refs.push(...material.pageReferences);
-    });
-  }
-  return [...new Set(refs)].sort((a, b) => a - b);
-}
-
-function extractCSIDivisionsFromData(data: any): string[] {
-  const divisions: string[] = [];
-  if (data.trades) {
-    data.trades.forEach((trade: any) => {
-      if (trade.csiDivision) divisions.push(trade.csiDivision);
-    });
-  }
-  return [...new Set(divisions)];
-}
 
 /**
  * Analyze construction document structure and content
