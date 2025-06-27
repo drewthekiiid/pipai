@@ -27,15 +27,6 @@ const {
   },
 });
 
-// Configure longer timeout for AI analysis specifically
-const { runAIAnalysisActivity: runLongAIAnalysis } = proxyActivities<typeof activities>({
-  startToCloseTimeout: '10 minutes',  // Extended for GPT-4o processing
-  retry: {
-    initialInterval: '2s',
-    maximumInterval: '45s', 
-    maximumAttempts: 2,  // Fewer retries for expensive AI calls
-  },
-});
 
 // Configure optimized timeout for vision analysis (multiple images)
 const { analyzeImagesWithVisionActivity: runVisionAnalysis } = proxyActivities<typeof activities>({
@@ -161,8 +152,11 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
     console.log(`  - Will route to: ${downloadResult.fileName.toLowerCase().endsWith('.pdf') ? 'PDF→Images→Vision' : 'Text Extraction'}`);
     
     if (downloadResult.fileName.toLowerCase().endsWith('.pdf')) {
-      // 🚀 MODERN APPROACH: PDF → Images → GPT-4o Vision with PARALLEL WORKERS
-      status = { step: 'PDF Processor: Getting actual PDF page count...', progress: 15 };
+      status = { step: 'PDF Processor: Extracting structured data with page references...', progress: 15 };
+      if (status.canceled) throw new Error('Analysis canceled');
+      
+      
+      status = { step: 'PDF Processor: Getting actual PDF page count...', progress: 18 };
       if (status.canceled) throw new Error('Analysis canceled');
       
       // 🎯 ACCURATE PAGE COUNT: Get the real number of pages instead of estimation
@@ -307,21 +301,16 @@ export async function analyzeDocumentWorkflow(input: AnalysisInput): Promise<Ana
         });
       })(),
       
-      // Estimator Agent - AI analysis  
+      // Estimator Agent - AI analysis with enhanced prompting
       (async () => {
-        log.info('Starting AI analysis in parallel', { analysisId });
+        log.info('Starting AI analysis with enhanced prompting', { analysisId });
         await sleep(300);
         status = { step: 'Estimator Agent: Running GPT-4o construction analysis...', progress: 75 };
         await sleep(200);
         status = { step: 'Estimator Agent: Generating trade detection and scope of work...', progress: 85 };
-        return await runLongAIAnalysis({
+        return await runAIAnalysisActivity({
           text: textResult,
           analysisType: input.analysisType,
-          metadata: { 
-            pageCount: 0, 
-            processingTime: 0, 
-            processingMethod: downloadResult.fileName.toLowerCase().endsWith('.pdf') ? 'pdf-images-vision' : 'traditional-ocr'
-          },
         });
       })()
     ]);

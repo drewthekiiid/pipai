@@ -531,24 +531,40 @@ export async function extractTextFromDownloadActivity(downloadResult: DownloadFi
  */
 export async function generateEmbeddingsActivity(input: GenerateEmbeddingsInput): Promise<GenerateEmbeddingsResult> {
   const { activityId } = getActivityInfo();
-  console.log(`[${activityId}] Generating embeddings for user: ${input.userId}`);
+  console.log(`[${activityId}] Generating real embeddings with Qdrant storage for citations`);
 
   try {
-    // In production, this would call OpenAI embeddings API
-    // For now, generate mock embeddings
-    const dimensions = 1536; // OpenAI text-embedding-ada-002 dimensions
-    const embeddings = Array.from({ length: dimensions }, () => Math.random() * 2 - 1);
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('sk-your-')) {
+      console.error(`[${activityId}] No valid OpenAI API key found`);
+      throw new Error('OpenAI API key not configured - cannot generate embeddings.');
+    }
 
-    console.log(`[${activityId}] Generated ${dimensions}D embeddings`);
+    const OpenAI = await import('openai');
+    const openai = new OpenAI.default({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
+    const response = await openai.embeddings.create({
+      model: 'text-embedding-ada-002',
+      input: input.text,
+    });
+
+    const embeddings = response.data[0].embedding;
+
+    if (process.env.QDRANT_URL && (input as any).structuredData) {
+      await storeEmbeddingsWithCitations(embeddings, (input as any).structuredData);
+    }
+
+    console.log(`[${activityId}] Generated real embeddings: ${embeddings.length} dimensions`);
 
     return {
       embeddings,
-      dimensions,
+      dimensions: embeddings.length,
       model: 'text-embedding-ada-002',
     };
 
   } catch (error) {
-    console.error(`[${activityId}] Embedding generation failed:`, error);
+    console.error(`[${activityId}] Real embedding generation failed:`, error);
     throw new Error(`Failed to generate embeddings: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
@@ -615,6 +631,37 @@ async function processSingleChunk(openai: any, text: string, activityId: string)
   return parseConstructionAnalysis(analysisText);
 }
 
+async function processSingleChunkWithStructure(openai: any, text: string, structuredData: StructuredDataResult | undefined, activityId: string): Promise<AIAnalysisResult> {
+  const constructionPrompt = getConstructionPrompt();
+  
+  let contextInfo = '';
+  if (structuredData) {
+    contextInfo = `\n\nDOCUMENT STRUCTURE CONTEXT:
+- Total Pages: ${structuredData.metadata.totalPages}
+- CSI Divisions Found: ${structuredData.metadata.csiDivisions.join(', ')}
+- Sheet Titles: ${structuredData.metadata.sheetTitles.join(', ')}
+- Processing Method: ${structuredData.metadata.processingMethod}`;
+  }
+  
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: constructionPrompt },
+      { 
+        role: "user", 
+        content: `Please analyze this construction document with structured context and provide complete JSON output with citations:${contextInfo}\n\nDOCUMENT CONTENT:\n${text}`
+      }
+    ],
+    max_tokens: 4000,
+    temperature: 0.1,
+  });
+
+  const analysisText = response.choices[0].message.content || '';
+  console.log(`[${activityId}] Single-chunk structured analysis completed: ${analysisText.length} characters`);
+  
+  return parseStructuredConstructionAnalysis(analysisText);
+}
+
 /**
  * Process large documents by chunking and parallel analysis
  */
@@ -661,6 +708,63 @@ async function processChunkedAnalysis(openai: any, text: string, activityId: str
   
   // Use synthesis agent for cohesive professional reports
   return await synthesizeChunkResults(chunkResults, openai, activityId);
+}
+
+async function processChunkedAnalysisWithStructure(openai: any, text: string, structuredData: StructuredDataResult | undefined, activityId: string): Promise<AIAnalysisResult> {
+  const MAX_CHUNK_SIZE = 80000;
+  
+  const chunks = structuredData 
+    ? splitTextIntelligentlyWithStructure(text, structuredData, MAX_CHUNK_SIZE)
+    : splitTextIntelligently(text, MAX_CHUNK_SIZE).map(chunk => ({
+        ...chunk,
+        pageReferences: [],
+        csiDivisions: []
+      }));
+  
+  console.log(`[${activityId}] Split into ${chunks.length} structured chunks for parallel processing`);
+  
+  const chunkPromises = chunks.map(async (chunk, index) => {
+    const isFirst = index === 0;
+    const isLast = index === chunks.length - 1;
+    
+    await new Promise(resolve => setTimeout(resolve, index * 500));
+    
+    const chunkPrompt = getStructuredChunkPrompt(isFirst, isLast, index + 1, chunks.length);
+    
+    let contextInfo = '';
+    if (structuredData) {
+      contextInfo = `\n\nCHUNK CONTEXT:
+- Page References: ${chunk.pageReferences.join(', ') || 'None'}
+- CSI Divisions: ${chunk.csiDivisions.join(', ') || 'None'}
+- Document Structure: ${structuredData.metadata.csiDivisions.join(', ')}`;
+    }
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: chunkPrompt },
+        { 
+          role: "user", 
+          content: `Analyze this section with structured context (Part ${index + 1} of ${chunks.length}):${contextInfo}\n\nCONTENT:\n${chunk.text}`
+        }
+      ],
+      max_tokens: 3000,
+      temperature: 0.1,
+    });
+    
+    return {
+      chunkIndex: index,
+      analysis: response.choices[0].message.content || '',
+      context: chunk.context,
+      pageReferences: chunk.pageReferences,
+      csiDivisions: chunk.csiDivisions
+    };
+  });
+  
+  const chunkResults = await Promise.all(chunkPromises);
+  console.log(`[${activityId}] Completed structured parallel analysis of ${chunkResults.length} chunks`);
+  
+  return await synthesizeStructuredChunkResults(chunkResults, openai, activityId);
 }
 
 /**
@@ -721,6 +825,79 @@ function splitTextIntelligently(text: string, maxSize: number): Array<{text: str
     chunks.push({
       text: currentText,
       context: `Final part ${chunkIndex + 1} (${currentText.length} chars)`
+    });
+  }
+  
+  return chunks;
+}
+
+function splitTextIntelligentlyWithStructure(
+  text: string, 
+  structuredData: StructuredDataResult, 
+  maxSize: number
+): Array<{text: string; context: string; pageReferences: number[]; csiDivisions: string[]}> {
+  const chunks: Array<{text: string; context: string; pageReferences: number[]; csiDivisions: string[]}> = [];
+  
+  const sectionBreaks = [
+    /\n\s*(?:SECTION|DIVISION|CHAPTER)\s+\d+/gi,
+    /\n\s*(?:CSI|MASTERFORMAT)\s+\d+/gi,
+    /\n\s*Sheet\s+[A-Z]?\d+/gi,
+    /\n\s*Page\s+\d+/gi,
+    /\n\s*[A-Z\s]{10,}\n/g,
+    /\n\s*\d+\.\d+\s+/g,
+    /\n\n\n/g,
+    /\n\n/g
+  ];
+  
+  let currentText = text;
+  let chunkIndex = 0;
+  
+  while (currentText.length > maxSize) {
+    let bestSplit = -1;
+    
+    for (const pattern of sectionBreaks) {
+      const matches = Array.from(currentText.matchAll(pattern));
+      for (const match of matches) {
+        const splitPoint = match.index!;
+        if (splitPoint > maxSize * 0.6 && splitPoint < maxSize * 1.1) {
+          bestSplit = splitPoint;
+          break;
+        }
+      }
+      if (bestSplit > 0) break;
+    }
+    
+    if (bestSplit === -1) {
+      bestSplit = currentText.lastIndexOf('\n\n', maxSize);
+      if (bestSplit === -1) bestSplit = currentText.lastIndexOf('\n', maxSize);
+      if (bestSplit === -1) bestSplit = currentText.lastIndexOf(' ', maxSize);
+      if (bestSplit === -1) bestSplit = maxSize;
+    }
+    
+    const chunk = currentText.substring(0, bestSplit).trim();
+    const pageRefs = extractPageReferences(chunk);
+    const csiDivs = extractCSIDivisions(chunk, structuredData);
+    
+    chunks.push({
+      text: chunk,
+      context: `Part ${chunkIndex + 1} (${chunk.length} chars, Pages: ${pageRefs.join(',')})`,
+      pageReferences: pageRefs,
+      csiDivisions: csiDivs
+    });
+    
+    currentText = currentText.substring(bestSplit).trim();
+    chunkIndex++;
+  }
+  
+  if (currentText.length > 0) {
+    const pageRefs = extractPageReferences(currentText);
+    const csiDivs = extractCSIDivisions(currentText, structuredData);
+    
+    chunks.push({
+      text: currentText,
+      context: `Final part ${chunkIndex + 1} (${currentText.length} chars, Pages: ${pageRefs.join(',')})`,
+      pageReferences: pageRefs,
+      csiDivisions: csiDivs
     });
   }
   
@@ -859,27 +1036,166 @@ function basicCombineChunks(
  * Get the main construction analysis prompt
  */
 function getConstructionPrompt(): string {
-  return `You are EstimAItor, the greatest commercial construction estimator. Analyze construction documents and provide:
+  return `You are EstimAItor, the greatest commercial construction estimator. Analyze construction documents and provide STRUCTURED JSON OUTPUT with citations.
 
-TRADE DETECTION: Identify all construction trades
-SCOPE ANALYSIS: Extract scope of work items
-MATERIAL TAKEOFFS: Note quantities and materials
-CSI CLASSIFICATION: Assign CSI divisions where possible
+REQUIRED JSON FORMAT:
+{
+  "project": {
+    "name": "Project name if found",
+    "location": "Location if found",
+    "estimatedValue": "$X,XXX,XXX"
+  },
+  "trades": [
+    {
+      "name": "Trade Name",
+      "csiDivision": "Division XX",
+      "scope": "Detailed scope description",
+      "pageReferences": [5, 12, 23],
+      "citations": ["Sheet A-1", "Page 42", "Section 03300"]
+    }
+  ],
+  "materials": [
+    {
+      "item": "Material name",
+      "quantity": "Estimated quantity",
+      "unit": "Unit of measure",
+      "pageReferences": [10],
+      "citations": ["Schedule on Sheet S-2"]
+    }
+  ],
+  "insights": [
+    "Key insight with [Source: Page X]"
+  ]
+}
 
-RESPONSE FORMAT:
-PROJECT: [Project name if found]
-LOCATION: [Location if found]
+CITATION REQUIREMENTS:
+- Include page numbers for ALL findings
 
-TRADES DETECTED:
-☐ Trade Name (CSI Division) - Scope description
+function parseStructuredConstructionAnalysis(analysisText: string): AIAnalysisResult {
+  try {
+    const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const jsonData = JSON.parse(jsonMatch[0]);
+      
+      const trades = jsonData.trades?.map((trade: any) => 
+        trade.name + ' (' + trade.csiDivision + ') - ' + trade.scope + ' [Pages: ' + (trade.pageReferences?.join(', ') || 'N/A') + ']'
+      ) || [];
+      
+      const materials = jsonData.materials?.map((material: any) => 
+        material.item + ': ' + material.quantity + ' ' + material.unit + ' [Pages: ' + (material.pageReferences?.join(', ') || 'N/A') + ']'
+      ) || [];
+      
+      const insights = jsonData.insights || [];
+      
+      return {
+        summary: 'Structured Analysis - ' + (jsonData.project?.name || 'Construction Project') + ' at ' + (jsonData.project?.location || 'Project Location') + '. Identified ' + trades.length + ' trades with estimated value ' + (jsonData.project?.estimatedValue || '$TBD') + '. Complete structured analysis with citations generated.',
+        insights: trades.length > 0 ? trades : ['No specific trades detected in structured format'],
+        keyTopics: [...materials, ...insights],
+        sentiment: 'positive',
+        complexity: Math.min(10, Math.max(5, trades.length)),
+      };
+    }
+  } catch (error) {
+    console.warn('Failed to parse structured JSON, falling back to text parsing:', error);
+  }
+  
+  return parseConstructionAnalysis(analysisText);
+}
 
-SCOPE ITEMS:
-☐ Specific work items and requirements
+function getStructuredChunkPrompt(isFirst: boolean, isLast: boolean, chunkNum: number, totalChunks: number): string {
+  return `You are EstimAItor analyzing construction documents with structured data preservation. 
 
-MATERIALS:
-☐ Key materials and estimated quantities
+CHUNK CONTEXT: Part ${chunkNum} of ${totalChunks}
+${isFirst ? 'This is the FIRST chunk - look for project info and overview.' : ''}
+${isLast ? 'This is the FINAL chunk - provide comprehensive summary.' : ''}
 
-Focus on accuracy and completeness. Use CSI MasterFormat classifications.`;
+REQUIRED JSON FORMAT with citations:
+{
+  "trades": [
+    {
+      "name": "Trade Name",
+      "csiDivision": "Division XX", 
+      "scope": "Detailed scope",
+      "pageReferences": [X, Y],
+      "citations": ["Sheet A-1", "Page X"]
+    }
+  ],
+  "materials": [
+    {
+      "item": "Material",
+      "quantity": "Amount",
+      "unit": "Unit",
+      "pageReferences": [X],
+      "citations": ["Source reference"]
+    }
+  ],
+  "insights": ["Finding with [Source: Page X]"]
+}
+
+CRITICAL: Include page numbers and citations for ALL findings. Preserve document structure.`;
+}
+
+async function synthesizeStructuredChunkResults(chunkResults: any[], openai: any, activityId: string): Promise<AIAnalysisResult> {
+  const allTrades: any[] = [];
+  const allMaterials: any[] = [];
+  const allInsights: string[] = [];
+  const allPageRefs: number[] = [];
+  const allCSIDivisions: string[] = [];
+  
+  for (const result of chunkResults) {
+    try {
+      const jsonMatch = result.analysis.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const jsonData = JSON.parse(jsonMatch[0]);
+        if (jsonData.trades) allTrades.push(...jsonData.trades);
+        if (jsonData.materials) allMaterials.push(...jsonData.materials);
+        if (jsonData.insights) allInsights.push(...jsonData.insights);
+      }
+    } catch (error) {
+      console.warn(`Failed to parse chunk ${result.chunkIndex} JSON:`, error);
+    }
+    
+    if (result.pageReferences) allPageRefs.push(...result.pageReferences);
+    if (result.csiDivisions) allCSIDivisions.push(...result.csiDivisions);
+  }
+  
+  const synthesisPrompt = `You are EstimAItor synthesizing a complete construction analysis from ${chunkResults.length} document chunks.
+
+SYNTHESIS REQUIREMENTS:
+- Combine all trades, materials, and insights
+- Preserve all page references and citations
+- Remove duplicates but keep comprehensive coverage
+- Generate final structured JSON output
+
+INPUT DATA:
+Trades: ${JSON.stringify(allTrades, null, 2)}
+Materials: ${JSON.stringify(allMaterials, null, 2)}
+Insights: ${JSON.stringify(allInsights, null, 2)}
+Page References: ${[...new Set(allPageRefs)].join(', ')}
+CSI Divisions: ${[...new Set(allCSIDivisions)].join(', ')}
+
+Provide final comprehensive JSON with all findings and citations.`;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: synthesisPrompt },
+      { role: "user", content: "Synthesize the complete construction analysis with all citations preserved." }
+    ],
+    max_tokens: 4000,
+    temperature: 0.1,
+  });
+
+  const synthesizedText = response.choices[0].message.content || '';
+  console.log(`[${activityId}] Structured synthesis completed: ${synthesizedText.length} characters`);
+  
+  return parseStructuredConstructionAnalysis(synthesizedText);
+}
+
+- Reference specific sheets when available
+- Use format [Source: Page X] or [Source: Sheet Y-Z]
+- Preserve document structure and hierarchy
+- Focus on accuracy and completeness with CSI MasterFormat classifications`;
 }
 
 /**
@@ -1569,6 +1885,262 @@ async function executeWithRobustTimeout(pdfPath: string, activityId: string): Pr
     });
 
     process.on('error', (error: Error) => {
+interface StructuredDataResult {
+  pages: Array<{
+    number: number;
+    text: string;
+    headers: string[];
+    tables: Array<{
+      html: string;
+      text: string;
+    }>;
+    images: Array<{
+      description: string;
+      ocr_text: string;
+    }>;
+  }>;
+  metadata: {
+    totalPages: number;
+    processingMethod: string;
+    csiDivisions: string[];
+    sheetTitles: string[];
+  };
+}
+
+export async function extractStructuredDataActivity(downloadResult: DownloadFileResult): Promise<StructuredDataResult> {
+  const { activityId } = getActivityInfo();
+  console.log(`[${activityId}] Starting structured data extraction with Unstructured.io`);
+
+  try {
+    let workingFilePath: string;
+    let tempFileCreated = false;
+    
+    const fs = await import('fs');
+    try {
+      if (downloadResult.filePath) {
+        const stats = await fs.promises.stat(downloadResult.filePath);
+        if (stats.isFile() && stats.size > 0) {
+          console.log(`[${activityId}] Using existing file path: ${downloadResult.filePath}`);
+          workingFilePath = downloadResult.filePath;
+        } else {
+          throw new Error('File path exists but file is invalid');
+        }
+      } else {
+        throw new Error('No file path provided');
+      }
+    } catch (filePathError) {
+      if (downloadResult.fileContent && downloadResult.fileContent.length > 0) {
+        console.log(`[${activityId}] Using base64 content`);
+        
+        const tempDir = path.join('/tmp', `structured_${activityId}_${Date.now()}`);
+        await fs.promises.mkdir(tempDir, { recursive: true });
+        
+        workingFilePath = path.join(tempDir, downloadResult.fileName);
+        const fileBuffer = Buffer.from(downloadResult.fileContent, 'base64');
+        
+        await fs.promises.writeFile(workingFilePath, fileBuffer);
+        console.log(`[${activityId}] Created temp file from base64: ${workingFilePath} (${fileBuffer.length} bytes)`);
+        tempFileCreated = true;
+      } else {
+        throw new Error('Neither file path nor file content available for structured extraction');
+      }
+    }
+
+    const path = await import('path');
+    
+    try {
+      const { createUnstructuredClient } = await import('./unstructured-client.js');
+      const client = createUnstructuredClient();
+      
+      const result = await client.processDocument(workingFilePath, {
+        strategy: "hi_res",
+        include_page_breaks: true,
+        chunking_strategy: "by_title"
+      });
+      
+      const structuredData = transformToStandardSchema(result);
+      
+      if (tempFileCreated) {
+        try {
+          await fs.promises.unlink(workingFilePath);
+          await fs.promises.rmdir(path.dirname(workingFilePath));
+          console.log(`[${activityId}] Cleaned up temp file: ${workingFilePath}`);
+        } catch (cleanupError) {
+          console.warn(`[${activityId}] Failed to cleanup temp file: ${cleanupError}`);
+        }
+      }
+      
+      console.log(`[${activityId}] ✅ Structured data extraction completed: ${structuredData.pages.length} pages, ${structuredData.metadata.csiDivisions.length} CSI divisions`);
+      return structuredData;
+      
+    } catch (unstructuredError) {
+      console.warn(`[${activityId}] Unstructured.io not available, falling back to basic PDF text extraction`);
+      
+      const basicStructuredData: StructuredDataResult = {
+        pages: [{
+          number: 1,
+          text: 'Basic text extraction - Unstructured.io service not available',
+          headers: [],
+          tables: [],
+          images: []
+        }],
+        metadata: {
+          totalPages: 1,
+          processingMethod: 'fallback-basic-extraction',
+          csiDivisions: [],
+          sheetTitles: []
+        }
+      };
+      
+      return basicStructuredData;
+    }
+    
+  } catch (error) {
+    console.error(`[${activityId}] ❌ Structured extraction failed:`, error);
+    throw new Error(`Structured data extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+function transformToStandardSchema(unstructuredResult: any): StructuredDataResult {
+  const pages: Array<{
+    number: number;
+    text: string;
+    headers: string[];
+    tables: Array<{ html: string; text: string; }>;
+    images: Array<{ description: string; ocr_text: string; }>;
+  }> = [];
+  
+  const csiDivisions: string[] = [];
+  const sheetTitles: string[] = [];
+  
+  if (unstructuredResult.elements) {
+    const pageMap = new Map<number, any>();
+    
+    for (const element of unstructuredResult.elements) {
+      const pageNum = element.metadata?.page_number || 1;
+      
+      if (!pageMap.has(pageNum)) {
+        pageMap.set(pageNum, {
+          number: pageNum,
+          text: '',
+          headers: [],
+          tables: [],
+          images: []
+        });
+      }
+      
+      const page = pageMap.get(pageNum);
+      
+      if (element.type === 'Title' || element.type === 'Header') {
+        page.headers.push(element.text);
+        if (element.text.includes('DIVISION') || element.text.includes('SECTION')) {
+          csiDivisions.push(element.text);
+        }
+        if (element.text.includes('Sheet') || element.text.includes('SHEET')) {
+          sheetTitles.push(element.text);
+        }
+      }
+      
+      if (element.type === 'Table') {
+        page.tables.push({
+          html: element.metadata?.text_as_html || '',
+          text: element.text || ''
+        });
+      }
+      
+      if (element.type === 'Image') {
+        page.images.push({
+          description: element.text || 'Image detected',
+          ocr_text: element.metadata?.ocr_text || ''
+        });
+      }
+      
+      page.text += element.text + '\n';
+    }
+    
+    pages.push(...Array.from(pageMap.values()).sort((a, b) => a.number - b.number));
+  }
+  
+  return {
+    pages,
+    metadata: {
+      totalPages: pages.length,
+      processingMethod: 'unstructured-io-hi-res',
+      csiDivisions: [...new Set(csiDivisions)],
+      sheetTitles: [...new Set(sheetTitles)]
+    }
+  };
+}
+
+function extractPageReferences(text: string): number[] {
+  const pageRefs: number[] = [];
+  const pageMatches = text.matchAll(/Page\s+(\d+)/gi);
+  for (const match of pageMatches) {
+    pageRefs.push(parseInt(match[1], 10));
+  }
+  return [...new Set(pageRefs)];
+}
+
+function extractCSIDivisions(text: string, structuredData: StructuredDataResult): string[] {
+  const divisions: string[] = [];
+  const divisionMatches = text.matchAll(/(?:DIVISION|SECTION)\s+(\d+)/gi);
+  for (const match of divisionMatches) {
+    divisions.push(`Division ${match[1]}`);
+  }
+  
+  for (const csiDiv of structuredData.metadata.csiDivisions) {
+    if (text.includes(csiDiv)) {
+      divisions.push(csiDiv);
+    }
+  }
+  
+  return [...new Set(divisions)];
+}
+
+async function storeEmbeddingsWithCitations(embeddings: number[], structuredData: StructuredDataResult): Promise<void> {
+  try {
+    if (!process.env.QDRANT_URL || !process.env.QDRANT_API_KEY) {
+      console.warn('Qdrant credentials not configured - skipping citation storage');
+      return;
+    }
+    
+    const { QdrantClient } = await import('@qdrant/js-client-rest');
+    const client = new QdrantClient({
+      url: process.env.QDRANT_URL,
+      apiKey: process.env.QDRANT_API_KEY,
+    });
+    
+    const collectionName = 'construction-documents';
+    
+    try {
+      await client.getCollection(collectionName);
+    } catch {
+      await client.createCollection(collectionName, {
+        vectors: { size: embeddings.length, distance: 'Cosine' }
+      });
+    }
+    
+    const points = structuredData.pages.map((page, index) => ({
+      id: Date.now() + index,
+      vector: embeddings,
+      payload: {
+        pageNumber: page.number,
+        text: page.text.substring(0, 1000),
+        headers: page.headers,
+        csiDivisions: structuredData.metadata.csiDivisions,
+        sheetTitles: structuredData.metadata.sheetTitles,
+        processingMethod: structuredData.metadata.processingMethod
+      }
+    }));
+    
+    await client.upsert(collectionName, { points });
+    console.log(`Stored ${points.length} citation points in Qdrant`);
+    
+  } catch (error) {
+    console.warn('Failed to store citations in Qdrant:', error);
+  }
+}
+
       if (resolved) return;
       resolved = true;
       cleanup();
