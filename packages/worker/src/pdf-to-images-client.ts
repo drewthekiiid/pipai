@@ -62,44 +62,44 @@ export class PDFToImagesClient {
     activityId: string
   ): Promise<PDFConversionResult> {
     const startTime = Date.now();
-    const workDir = path.join(this.tempDir, `pdf_conversion_${activityId}_${Date.now()}`);
+    const workDir = path.join(this.tempDir, 'pdf_conversion_' + activityId + '_' + Date.now());
     
     try {
       // Create working directory
       await fs.mkdir(workDir, { recursive: true });
-      console.log(`📁 Created work directory: ${workDir}`);
+      console.log('📁 Created work directory: ' + workDir);
       
       // Download PDF using presigned URL
-      console.log(`📥 Downloading PDF from presigned URL`);
+      console.log('📥 Downloading PDF from presigned URL');
       const pdfPath = await this.downloadPDFFromPresignedUrl(pdfPresignedUrl, workDir);
       
       // Get total page count first
       const totalPages = await this.getPDFPageCount(pdfPath);
-      console.log(`📄 PDF has ${totalPages} pages`);
+      console.log('📄 PDF has ' + totalPages + ' pages');
       
       // For large PDFs (>5 pages), use parallel processing
       let rawImageFiles: string[];
       if (totalPages > 5) {
-        console.log(`🚀 Using parallel processing for ${totalPages} pages...`);
+        console.log('🚀 Using parallel processing for ' + totalPages + ' pages...');
         rawImageFiles = await this.convertWithParallelProcessing(pdfPath, workDir, totalPages);
       } else {
-        console.log(`🔄 Converting PDF to images at ${this.dpi} DPI...`);
+        console.log('🔄 Converting PDF to images at ' + this.dpi + ' DPI...');
         rawImageFiles = await this.convertWithPdftoppm(pdfPath, workDir);
       }
       
       // Optimize images with ImageMagick if needed
-      console.log(`🎨 Optimizing images with ImageMagick...`);
+      console.log('🎨 Optimizing images with ImageMagick...');
       const optimizedImages = await this.optimizeWithImageMagick(rawImageFiles, workDir);
       
       // Upload to S3
-      console.log(`📤 Uploading ${optimizedImages.length} optimized images to S3...`);
+      console.log('📤 Uploading ' + optimizedImages.length + ' optimized images to S3...');
       const images = await this.uploadImagesToS3(optimizedImages, outputPrefix);
       
       const processingTimeMs = Date.now() - startTime;
       const totalSizeBytes = images.reduce((sum, img) => sum + img.fileSize, 0);
       
-      console.log(`✅ PDF conversion completed: ${images.length} pages in ${processingTimeMs}ms`);
-      console.log(`📊 Total size: ${(totalSizeBytes / 1024 / 1024).toFixed(2)}MB`);
+      console.log('✅ PDF conversion completed: ' + images.length + ' pages in ' + processingTimeMs + 'ms');
+      console.log('📊 Total size: ' + (totalSizeBytes / 1024 / 1024).toFixed(2) + 'MB');
       
       return {
         totalPages: images.length,
@@ -112,9 +112,9 @@ export class PDFToImagesClient {
       // Cleanup temp directory
       try {
         await fs.rm(workDir, { recursive: true, force: true });
-        console.log(`🧹 Cleaned up temp directory: ${workDir}`);
+        console.log('🧹 Cleaned up temp directory: ' + workDir);
       } catch (error) {
-        console.warn(`⚠️ Failed to cleanup temp directory: ${error}`);
+        console.warn('⚠️ Failed to cleanup temp directory: ' + error);
       }
     }
   }
@@ -126,7 +126,7 @@ export class PDFToImagesClient {
     const response = await fetch(presignedUrl);
     
     if (!response.ok) {
-      throw new Error(`Failed to download PDF: ${response.status} ${response.statusText}`);
+      throw new Error('Failed to download PDF: ' + response.status + ' ' + response.statusText);
     }
     
     const arrayBuffer = await response.arrayBuffer();
@@ -135,7 +135,7 @@ export class PDFToImagesClient {
     
     await fs.writeFile(pdfPath, buffer);
     
-    console.log(`✅ Downloaded PDF: ${buffer.length} bytes`);
+    console.log('✅ Downloaded PDF: ' + buffer.length + ' bytes');
     return pdfPath;
   }
 
@@ -147,7 +147,7 @@ export class PDFToImagesClient {
     // Create shared cache directory based on presigned URL hash (all chunks share same PDF)
     const crypto = await import('crypto');
     const urlHash = crypto.createHash('md5').update(presignedUrl).digest('hex').substring(0, 8);
-    const sharedCacheDir = path.join(this.tempDir, `shared_pdf_${urlHash}`);
+    const sharedCacheDir = path.join(this.tempDir, 'shared_pdf_' + urlHash);
     const sharedPdfPath = path.join(sharedCacheDir, 'shared_input.pdf');
     const lockPath = path.join(sharedCacheDir, 'download.lock');
     
@@ -162,7 +162,7 @@ export class PDFToImagesClient {
         // Check if PDF already exists and is complete
         const stats = await fs.stat(sharedPdfPath);
         if (stats.size > 1000000) { // Must be at least 1MB (reasonable PDF size)
-          console.log(`📋 Using cached PDF: ${sharedPdfPath} (${stats.size} bytes)`);
+          console.log('📋 Using cached PDF: ' + sharedPdfPath + ' (' + stats.size + ' bytes)');
           return sharedPdfPath;
         }
       } catch {
@@ -172,19 +172,19 @@ export class PDFToImagesClient {
       try {
         // Try to acquire exclusive lock
         await fs.writeFile(lockPath, activityId, { flag: 'wx' });
-        console.log(`🔒 Acquired download lock for activity ${activityId}`);
+        console.log('🔒 Acquired download lock for activity ' + activityId);
         lockAcquired = true;
         break;
       } catch (lockError) {
         // Lock exists, wait briefly and retry
-        console.log(`⏳ Waiting for download by another chunk (attempt ${attempt + 1}/30)...`);
+        console.log('⏳ Waiting for download by another chunk (attempt ' + (attempt + 1) + '/30)...');
         await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
         
         if (attempt === 29) {
           // Force break lock after 30 seconds
           try {
             await fs.unlink(lockPath);
-            console.log(`🔓 Force-released stale download lock`);
+            console.log('🔓 Force-released stale download lock');
           } catch {
             // Ignore error
           }
@@ -201,7 +201,7 @@ export class PDFToImagesClient {
       try {
         const stats = await fs.stat(sharedPdfPath);
         if (stats.size > 1000000) {
-          console.log(`📋 Another chunk downloaded PDF: ${sharedPdfPath} (${stats.size} bytes)`);
+          console.log('📋 Another chunk downloaded PDF: ' + sharedPdfPath + ' (' + stats.size + ' bytes)');
           return sharedPdfPath;
         }
       } catch {
@@ -209,15 +209,15 @@ export class PDFToImagesClient {
       }
 
       // We have the lock, download the PDF
-      console.log(`📥 Downloading PDF from presigned URL (will be cached for other chunks)`);
+      console.log('📥 Downloading PDF from presigned URL (will be cached for other chunks)');
       
       // Use atomic write to prevent corruption
-      const tempPdfPath = `${sharedPdfPath}.tmp.${Date.now()}`;
+      const tempPdfPath = sharedPdfPath + '.tmp.' + Date.now();
       
       // Download PDF
       const response = await fetch(presignedUrl);
       if (!response.ok) {
-        throw new Error(`Failed to download PDF: ${response.status} ${response.statusText}`);
+        throw new Error('Failed to download PDF: ' + response.status + ' ' + response.statusText);
       }
       
       const arrayBuffer = await response.arrayBuffer();
@@ -227,7 +227,7 @@ export class PDFToImagesClient {
       await fs.writeFile(tempPdfPath, buffer);
       await fs.rename(tempPdfPath, sharedPdfPath);
       
-      console.log(`✅ Downloaded PDF to shared cache: ${buffer.length} bytes`);
+      console.log('✅ Downloaded PDF to shared cache: ' + buffer.length + ' bytes');
       return sharedPdfPath;
       
     } finally {
@@ -235,7 +235,7 @@ export class PDFToImagesClient {
       if (lockAcquired) {
         try {
           await fs.unlink(lockPath);
-          console.log(`🔓 Released download lock`);
+          console.log('🔓 Released download lock');
         } catch {
           // Ignore error if lock was already removed
         }
@@ -266,7 +266,7 @@ export class PDFToImagesClient {
       const buffer = Buffer.concat(chunks);
       await fs.writeFile(pdfPath, buffer);
       
-      console.log(`✅ Downloaded PDF: ${buffer.length} bytes`);
+      console.log('✅ Downloaded PDF: ' + buffer.length + ' bytes');
       return pdfPath;
     }
     
@@ -282,11 +282,11 @@ export class PDFToImagesClient {
       const args = [
         pdfPath,
         outputPrefix,
-        `-${this.format}`,
+        '-' + this.format,
         '-r', this.dpi.toString()
       ];
       
-      console.log(`🔧 Running: pdftoppm ${args.join(' ')}`);
+      console.log('🔧 Running: pdftoppm ' + args.join(' '));
       
       const process = spawn('pdftoppm', args, {
         stdio: ['pipe', 'pipe', 'pipe']
@@ -305,7 +305,7 @@ export class PDFToImagesClient {
       
       process.on('close', async (code) => {
         if (code !== 0) {
-          reject(new Error(`pdftoppm failed with code ${code}: ${stderr}`));
+          reject(new Error('pdftoppm failed with code ' + code + ': ' + stderr));
           return;
         }
         
@@ -313,11 +313,11 @@ export class PDFToImagesClient {
           // Find all generated image files
           const files = await fs.readdir(workDir);
           const imageFiles = files
-            .filter(file => file.startsWith('page-') && file.endsWith(`.${this.format}`))
+            .filter(file => file.startsWith('page-') && file.endsWith('.' + this.format))
             .map(file => path.join(workDir, file))
             .sort(); // Ensure proper page order
           
-          console.log(`✅ Generated ${imageFiles.length} image files`);
+          console.log('✅ Generated ' + imageFiles.length + ' image files');
           resolve(imageFiles);
         } catch (error) {
           reject(error);
@@ -325,7 +325,7 @@ export class PDFToImagesClient {
       });
       
       process.on('error', (error) => {
-        reject(new Error(`Failed to start pdftoppm: ${error.message}`));
+        reject(new Error('Failed to start pdftoppm: ' + error.message));
       });
     });
   }
@@ -340,14 +340,14 @@ export class PDFToImagesClient {
     // Process images in parallel for speed
     const processPromises = imageFiles.map(async (imagePath, index) => {
       const fileName = path.basename(imagePath);
-      const processedPath = path.join(workDir, `smart_${fileName}`);
+      const processedPath = path.join(workDir, 'smart_' + fileName);
       
       try {
         await this.applyMinimalSmartProcessing(imagePath, processedPath);
-        console.log(`🎯 Smart-processed: ${fileName}`);
+        console.log('🎯 Smart-processed: ' + fileName);
         return processedPath;
       } catch (error) {
-        console.warn(`⚠️ Failed to process ${fileName}, using original: ${error}`);
+        console.warn('⚠️ Failed to process ' + fileName + ', using original: ' + error);
         return imagePath; // Use original if processing fails
       }
     });
@@ -393,14 +393,14 @@ export class PDFToImagesClient {
       
       process.on('close', (code) => {
         if (code !== 0) {
-          reject(new Error(`Smart processing failed with code ${code}: ${stderr}`));
+          reject(new Error('Smart processing failed with code ' + code + ': ' + stderr));
           return;
         }
         resolve();
       });
       
       process.on('error', (error) => {
-        reject(new Error(`Failed to start smart processing: ${error.message}`));
+        reject(new Error('Failed to start smart processing: ' + error.message));
       });
     });
   }
@@ -415,14 +415,14 @@ export class PDFToImagesClient {
     // Process images in parallel for speed
     const optimizePromises = imageFiles.map(async (imagePath, index) => {
       const fileName = path.basename(imagePath);
-      const optimizedPath = path.join(workDir, `vision_optimized_${fileName}`);
+      const optimizedPath = path.join(workDir, 'vision_optimized_' + fileName);
       
       try {
         await this.optimizeForVision(imagePath, optimizedPath);
-        console.log(`🎨 Vision-optimized: ${fileName}`);
+        console.log('🎨 Vision-optimized: ' + fileName);
         return optimizedPath;
       } catch (error) {
-        console.warn(`⚠️ Failed to optimize ${fileName}, using original: ${error}`);
+        console.warn('⚠️ Failed to optimize ' + fileName + ', using original: ' + error);
         return imagePath; // Use original if optimization fails
       }
     });
@@ -476,14 +476,14 @@ export class PDFToImagesClient {
       
       process.on('close', (code) => {
         if (code !== 0) {
-          reject(new Error(`Vision optimization failed with code ${code}: ${stderr}`));
+          reject(new Error('Vision optimization failed with code ' + code + ': ' + stderr));
           return;
         }
         resolve();
       });
       
       process.on('error', (error) => {
-        reject(new Error(`Failed to start Vision optimization: ${error.message}`));
+        reject(new Error('Failed to start Vision optimization: ' + error.message));
       });
     });
   }
@@ -497,14 +497,14 @@ export class PDFToImagesClient {
     
     for (const imagePath of imageFiles) {
       const fileName = path.basename(imagePath);
-      const optimizedPath = path.join(workDir, `optimized_${fileName}`);
+      const optimizedPath = path.join(workDir, 'optimized_' + fileName);
       
       try {
         await this.optimizeSingleImage(imagePath, optimizedPath);
         optimizedFiles.push(optimizedPath);
-        console.log(`🎨 Optimized: ${fileName}`);
+        console.log('🎨 Optimized: ' + fileName);
       } catch (error) {
-        console.warn(`⚠️ Failed to optimize ${fileName}, using original: ${error}`);
+        console.warn('⚠️ Failed to optimize ' + fileName + ', using original: ' + error);
         optimizedFiles.push(imagePath); // Use original if optimization fails
       }
     }
@@ -523,7 +523,7 @@ export class PDFToImagesClient {
       // 3. Ensure format consistency
       const args = [
         inputPath,
-        '-resize', `x${this.maxHeight}>`, // Only resize if taller than maxHeight
+        '-resize', 'x' + this.maxHeight + '>', // Only resize if taller than maxHeight
         '-quality', '85',
         '-strip', // Remove metadata to reduce file size
         '-colorspace', 'sRGB', // Ensure consistent color space
@@ -542,14 +542,14 @@ export class PDFToImagesClient {
       
       process.on('close', (code) => {
         if (code !== 0) {
-          reject(new Error(`ImageMagick failed with code ${code}: ${stderr}`));
+          reject(new Error('ImageMagick failed with code ' + code + ': ' + stderr));
           return;
         }
         resolve();
       });
       
       process.on('error', (error) => {
-        reject(new Error(`Failed to start ImageMagick: ${error.message}`));
+        reject(new Error('Failed to start ImageMagick: ' + error.message));
       });
     });
   }
@@ -563,8 +563,8 @@ export class PDFToImagesClient {
     // 🚀 PARALLEL UPLOADS: Process all images concurrently
     const uploadPromises = imageFiles.map(async (imagePath, i) => {
       const pageNumber = i + 1;
-      const fileName = `page-${pageNumber.toString().padStart(3, '0')}.${this.format}`;
-      const s3Key = `${outputPrefix}/${fileName}`;
+      const fileName = 'page-' + pageNumber.toString().padStart(3, '0') + '.' + this.format;
+      const s3Key = outputPrefix + '/' + fileName;
       
       try {
         // Read image file
@@ -578,7 +578,7 @@ export class PDFToImagesClient {
           Bucket: this.bucket,
           Key: s3Key,
           Body: imageBuffer,
-          ContentType: `image/${this.format}`,
+          ContentType: 'image/' + this.format,
           Metadata: {
             'page-number': pageNumber.toString(),
             'original-pdf': outputPrefix.split('/').pop() || 'unknown',
@@ -588,19 +588,19 @@ export class PDFToImagesClient {
           }
         }));
         
-        console.log(`✅ Uploaded page ${pageNumber}: ${s3Key} (${imageBuffer.length} bytes, ${width}x${height})`);
+        console.log('✅ Uploaded page ' + pageNumber + ': ' + s3Key + ' (' + imageBuffer.length + ' bytes, ' + width + 'x' + height + ')');
         
         return {
           pageNumber,
           s3Key,
-          s3Url: `https://${this.bucket}.s3.amazonaws.com/${s3Key}`,
+          s3Url: 'https://' + this.bucket + '.s3.amazonaws.com/' + s3Key,
           width,
           height,
           fileSize: imageBuffer.length
         };
         
       } catch (error) {
-        console.error(`❌ Failed to upload page ${pageNumber}:`, error);
+        console.error('❌ Failed to upload page ' + pageNumber + ':', error);
         throw error;
       }
     });
@@ -636,7 +636,7 @@ export class PDFToImagesClient {
       
       process.on('close', (code) => {
         if (code !== 0) {
-          reject(new Error(`ImageMagick identify failed: ${stderr}`));
+          reject(new Error('ImageMagick identify failed: ' + stderr));
           return;
         }
         
@@ -647,12 +647,12 @@ export class PDFToImagesClient {
             height: parseInt(dimensions[1], 10)
           });
         } else {
-          reject(new Error(`Failed to parse dimensions: ${stdout}`));
+          reject(new Error('Failed to parse dimensions: ' + stdout));
         }
       });
       
       process.on('error', (error) => {
-        reject(new Error(`Failed to start ImageMagick identify: ${error.message}`));
+        reject(new Error('Failed to start ImageMagick identify: ' + error.message));
       });
     });
   }
@@ -691,7 +691,7 @@ export class PDFToImagesClient {
       });
       
       process.on('error', (error) => {
-        reject(new Error(`Failed to get page count: ${error.message}`));
+        reject(new Error('Failed to get page count: ' + error.message));
       });
     });
   }
@@ -714,7 +714,7 @@ export class PDFToImagesClient {
       chunks.push({ start, end });
     }
     
-    console.log(`📦 Split into ${chunks.length} chunks of ${PAGES_PER_CHUNK} pages each`);
+    console.log('📦 Split into ' + chunks.length + ' chunks of ' + PAGES_PER_CHUNK + ' pages each');
     
     // Process chunks in parallel
     const chunkPromises = chunks.map((chunk, index) => 
@@ -730,7 +730,7 @@ export class PDFToImagesClient {
       return pageA - pageB;
     });
     
-    console.log(`✅ Parallel processing completed: ${allFiles.length} pages`);
+    console.log('✅ Parallel processing completed: ' + allFiles.length + ' pages');
     return allFiles;
   }
 
@@ -745,17 +745,17 @@ export class PDFToImagesClient {
     chunkIndex: number
   ): Promise<string[]> {
     return new Promise((resolve, reject) => {
-      const outputPrefix = path.join(workDir, `chunk_${chunkIndex}_page`);
+      const outputPrefix = path.join(workDir, 'chunk_' + chunkIndex + '_page');
       const args = [
         pdfPath,
         outputPrefix,
-        `-${this.format}`,
+        '-' + this.format,
         '-r', this.dpi.toString(),
         '-f', startPage.toString(),
         '-l', endPage.toString()
       ];
       
-      console.log(`🔧 Chunk ${chunkIndex}: Converting pages ${startPage}-${endPage}`);
+      console.log('🔧 Chunk ' + chunkIndex + ': Converting pages ' + startPage + '-' + endPage);
       
       const process = spawn('pdftoppm', args, {
         stdio: ['pipe', 'pipe', 'pipe']
@@ -774,7 +774,7 @@ export class PDFToImagesClient {
       
       process.on('close', async (code) => {
         if (code !== 0) {
-          reject(new Error(`pdftoppm chunk ${chunkIndex} failed with code ${code}: ${stderr}`));
+          reject(new Error('pdftoppm chunk ' + chunkIndex + ' failed with code ' + code + ': ' + stderr));
           return;
         }
         
@@ -782,12 +782,12 @@ export class PDFToImagesClient {
           // Find all generated image files for this chunk
           const files = await fs.readdir(workDir);
           const chunkFiles = files
-            .filter(file => file.startsWith(`chunk_${chunkIndex}_page-`) && file.endsWith(`.${this.format}`))
+            .filter(file => file.startsWith('chunk_' + chunkIndex + '_page-') && file.endsWith('.' + this.format))
             .map(file => {
               // Rename to standard format
               const pageNum = file.match(/page-(\d+)/)?.[1];
               if (pageNum) {
-                const standardName = `page-${pageNum.padStart(3, '0')}.${this.format}`;
+                const standardName = 'page-' + pageNum.padStart(3, '0') + '.' + this.format;
                 const oldPath = path.join(workDir, file);
                 const newPath = path.join(workDir, standardName);
                 fs.rename(oldPath, newPath).catch(console.warn);
@@ -797,7 +797,7 @@ export class PDFToImagesClient {
             })
             .sort();
           
-          console.log(`✅ Chunk ${chunkIndex}: Generated ${chunkFiles.length} images`);
+          console.log('✅ Chunk ' + chunkIndex + ': Generated ' + chunkFiles.length + ' images');
           resolve(chunkFiles);
         } catch (error) {
           reject(error);
@@ -805,7 +805,7 @@ export class PDFToImagesClient {
       });
       
       process.on('error', (error) => {
-        reject(new Error(`Failed to start pdftoppm chunk ${chunkIndex}: ${error.message}`));
+        reject(new Error('Failed to start pdftoppm chunk ' + chunkIndex + ': ' + error.message));
       });
     });
   }
@@ -822,33 +822,33 @@ export class PDFToImagesClient {
     endPage: number
   ): Promise<PDFConversionResult> {
     const startTime = Date.now();
-    const workDir = path.join(this.tempDir, `pdf_range_${activityId}_${Date.now()}`);
+    const workDir = path.join(this.tempDir, 'pdf_range_' + activityId + '_' + Date.now());
     
     try {
       // Create working directory
       await fs.mkdir(workDir, { recursive: true });
-      console.log(`📁 Created work directory: ${workDir}`);
+      console.log('📁 Created work directory: ' + workDir);
       
       // 🚀 OPTIMIZATION: Use shared PDF cache to avoid redundant downloads
       const pdfPath = await this.getSharedPDF(pdfPresignedUrl, activityId);
       
       // Convert specific page range
-      console.log(`🔄 Converting pages ${startPage}-${endPage} at ${this.dpi} DPI...`);
+      console.log('🔄 Converting pages ' + startPage + '-' + endPage + ' at ' + this.dpi + ' DPI...');
       const rawImageFiles = await this.convertPageRange(pdfPath, workDir, startPage, endPage);
       
       // 🎯 SMART PREPROCESSING: Minimal processing to help Vision API without text distortion
-      console.log(`🎯 Applying minimal smart preprocessing for Vision API...`);
+      console.log('🎯 Applying minimal smart preprocessing for Vision API...');
       const optimizedImages = await this.smartMinimalPreprocessing(rawImageFiles, workDir);
       
       // Upload to S3
-      console.log(`📤 Uploading ${optimizedImages.length} optimized images to S3...`);
+      console.log('📤 Uploading ' + optimizedImages.length + ' optimized images to S3...');
       const images = await this.uploadImagesToS3(optimizedImages, outputPrefix);
       
       const processingTimeMs = Date.now() - startTime;
       const totalSizeBytes = images.reduce((sum, img) => sum + img.fileSize, 0);
       
-      console.log(`✅ Page range conversion completed: ${images.length} pages in ${processingTimeMs}ms`);
-      console.log(`📊 Total size: ${(totalSizeBytes / 1024 / 1024).toFixed(2)}MB`);
+      console.log('✅ Page range conversion completed: ' + images.length + ' pages in ' + processingTimeMs + 'ms');
+      console.log('📊 Total size: ' + (totalSizeBytes / 1024 / 1024).toFixed(2) + 'MB');
       
       return {
         totalPages: images.length,
@@ -861,9 +861,9 @@ export class PDFToImagesClient {
       // Cleanup temp directory
       try {
         await fs.rm(workDir, { recursive: true, force: true });
-        console.log(`🧹 Cleaned up temp directory: ${workDir}`);
+        console.log('🧹 Cleaned up temp directory: ' + workDir);
       } catch (error) {
-        console.warn(`⚠️ Failed to cleanup temp directory: ${error}`);
+        console.warn('⚠️ Failed to cleanup temp directory: ' + error);
       }
     }
   }
@@ -882,13 +882,13 @@ export class PDFToImagesClient {
       const args = [
         pdfPath,
         outputPrefix,
-        `-${this.format}`,
+        '-' + this.format,
         '-r', this.dpi.toString(),
         '-f', startPage.toString(),
         '-l', endPage.toString()
       ];
       
-      console.log(`🔧 Converting pages ${startPage}-${endPage}: pdftoppm ${args.join(' ')}`);
+      console.log('🔧 Converting pages ' + startPage + '-' + endPage + ': pdftoppm ' + args.join(' '));
       
       const process = spawn('pdftoppm', args, {
         stdio: ['pipe', 'pipe', 'pipe']
@@ -907,7 +907,7 @@ export class PDFToImagesClient {
       
       process.on('close', async (code) => {
         if (code !== 0) {
-          reject(new Error(`pdftoppm failed with code ${code}: ${stderr}`));
+          reject(new Error('pdftoppm failed with code ' + code + ': ' + stderr));
           return;
         }
         
@@ -915,11 +915,11 @@ export class PDFToImagesClient {
           // Find all generated image files
           const files = await fs.readdir(workDir);
           const imageFiles = files
-            .filter(file => file.startsWith('page-') && file.endsWith(`.${this.format}`))
+            .filter(file => file.startsWith('page-') && file.endsWith('.' + this.format))
             .map(file => path.join(workDir, file))
             .sort(); // Ensure proper page order
           
-          console.log(`✅ Generated ${imageFiles.length} image files for pages ${startPage}-${endPage}`);
+          console.log('✅ Generated ' + imageFiles.length + ' image files for pages ' + startPage + '-' + endPage);
           resolve(imageFiles);
         } catch (error) {
           reject(error);
@@ -927,7 +927,7 @@ export class PDFToImagesClient {
       });
       
       process.on('error', (error) => {
-        reject(new Error(`Failed to start pdftoppm: ${error.message}`));
+        reject(new Error('Failed to start pdftoppm: ' + error.message));
       });
     });
   }
@@ -944,4 +944,4 @@ export function createPDFToImagesClient(s3Client: S3Client, bucket: string): PDF
     maxHeight: 1998, // GPT-4o limit
     format: 'png'
   });
-} 
+}              

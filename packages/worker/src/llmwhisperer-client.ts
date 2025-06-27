@@ -70,14 +70,14 @@ export class LLMWhispererClient {
       waitTimeout = 300,
     } = options;
 
-    console.log(`🔄 Processing document with LLMWhisperer: ${filePath}`);
-    console.log(`   Mode: ${mode}`);
-    console.log(`   Output mode: ${outputMode}`);
+    console.log('🔄 Processing document with LLMWhisperer: ' + filePath);
+    console.log('   Mode: ' + mode);
+    console.log('   Output mode: ' + outputMode);
 
     try {
       // Check if file exists
       if (!fs.existsSync(filePath)) {
-        throw new Error(`File not found: ${filePath}`);
+        throw new Error('File not found: ' + filePath);
       }
 
       // Create form data
@@ -96,7 +96,7 @@ export class LLMWhispererClient {
       });
 
       if (response.data.status_code !== 200) {
-        throw new Error(`LLMWhisperer API error: ${response.data.error || 'Unknown error'}`);
+        throw new Error('LLMWhisperer API error: ' + (response.data.error || 'Unknown error'));
       }
 
       // If waiting for completion, result should be in the response
@@ -104,9 +104,9 @@ export class LLMWhispererClient {
         const text = response.data.extraction.resultText;
         const pageCount = response.data.extraction.pageCount || 0;
         
-        console.log(`✅ LLMWhisperer processing completed`);
-        console.log(`   Pages processed: ${pageCount}`);
-        console.log(`   Text length: ${text.length.toLocaleString()} characters`);
+        console.log('✅ LLMWhisperer processing completed');
+        console.log('   Pages processed: ' + pageCount);
+        console.log('   Text length: ' + text.length.toLocaleString() + ' characters');
         
         return text;
       }
@@ -133,7 +133,7 @@ export class LLMWhispererClient {
           throw new Error('LLMWhisperer API key is invalid or expired.');
         }
         
-        throw new Error(`LLMWhisperer API error (${status}): ${data?.error || error.message}`);
+        throw new Error('LLMWhisperer API error (' + status + '): ' + (data?.error || error.message));
       }
       
       throw error;
@@ -147,19 +147,19 @@ export class LLMWhispererClient {
     const startTime = Date.now();
     const timeoutMs = timeoutSeconds * 1000;
 
-    console.log(`🔄 Polling for LLMWhisperer results: ${whisperHash}`);
+    console.log('🔄 Polling for LLMWhisperer results: ' + whisperHash);
 
     while (Date.now() - startTime < timeoutMs) {
       try {
-        const response = await this.client.get<WhisperResponse>(`/whisper-retrieve/${whisperHash}`);
+        const response = await this.client.get<WhisperResponse>('/whisper-retrieve/' + whisperHash);
         
         if (response.data.status_code === 200 && response.data.extraction?.resultText) {
           const text = response.data.extraction.resultText;
           const pageCount = response.data.extraction.pageCount || 0;
           
-          console.log(`✅ LLMWhisperer processing completed`);
-          console.log(`   Pages processed: ${pageCount}`);
-          console.log(`   Text length: ${text.length.toLocaleString()} characters`);
+          console.log('✅ LLMWhisperer processing completed');
+          console.log('   Pages processed: ' + pageCount);
+          console.log('   Text length: ' + text.length.toLocaleString() + ' characters');
           
           return text;
         }
@@ -168,12 +168,12 @@ export class LLMWhispererClient {
         await new Promise(resolve => setTimeout(resolve, 5000)); // 5 seconds
         
       } catch (error) {
-        console.warn(`⚠️ Polling attempt failed:`, error);
+        console.warn('⚠️ Polling attempt failed:', error);
         await new Promise(resolve => setTimeout(resolve, 5000));
       }
     }
 
-    throw new Error(`LLMWhisperer processing timeout after ${timeoutSeconds} seconds`);
+    throw new Error('LLMWhisperer processing timeout after ' + timeoutSeconds + ' seconds');
   }
 
   /**
@@ -205,7 +205,7 @@ export class LLMWhispererClient {
       if (remaining <= 0) {
         return { 
           canProcess: false, 
-          reason: `Daily quota of ${usage.daily_quota} pages exceeded. Used: ${usage.today_page_count}`,
+          reason: 'Daily quota of ' + usage.daily_quota + ' pages exceeded. Used: ' + usage.today_page_count,
           remaining: 0
         };
       }
@@ -228,4 +228,4 @@ export function createLLMWhispererClient(config?: LLMWhispererConfig): LLMWhispe
 }
 
 // Default export
-export default LLMWhispererClient; 
+export default LLMWhispererClient;    
